@@ -15,18 +15,36 @@ from datetime import datetime, timezone
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-WORKER_BASE_URL = "https://re4mp-worker.insanyteam-devs-8a9.workers.dev"
+# Este archivo se descarga como texto plano y lo ejecuta launcher.py vía
+# runpy, que le inyecta estos nombres ya resueltos en el namespace global
+# antes de correr el código. Los try/except son solo para poder correr este
+# archivo standalone en desarrollo (python updater_app.py directo).
+try:
+    CLIENT_API_KEY
+except NameError:
+    CLIENT_API_KEY = os.environ.get("CLIENT_API_KEY", "")
+try:
+    WORKER_BASE_URL
+except NameError:
+    WORKER_BASE_URL = "https://re4mp-worker.insanyteam-devs-8a9.workers.dev"
+try:
+    APP_DIR
+except NameError:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+try:
+    APP_PY_PATH
+except NameError:
+    APP_PY_PATH = os.path.abspath(__file__)
+try:
+    LAUNCHER_PATH
+except NameError:
+    LAUNCHER_PATH = os.path.abspath(__file__)
+
 REPO_URL = "https://gitlab.com/tomasvalero998/re4mp"
 
-try:
-    from _config import CLIENT_API_KEY
-except ImportError:
-    CLIENT_API_KEY = os.environ.get("CLIENT_API_KEY", "")
-
-try:
-    from _version import UPDATER_VERSION
-except ImportError:
-    UPDATER_VERSION = "dev"
+# El pipeline reemplaza este placeholder por el commit corto al publicar
+# (sed sobre este archivo, no hace falta compilar nada).
+UPDATER_APP_VERSION = "__UPDATER_APP_VERSION__"
 
 HEADERS = {"X-Api-Key": CLIENT_API_KEY}
 GAME_EXE_NAME = "bio4.exe"
@@ -62,10 +80,10 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
 
 
-def app_dir() -> str:
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+def game_dir() -> str:
+    # La carpeta del juego es donde vive launcher.exe (no donde vive este
+    # .py, que ahora está en APP_DIR/%LOCALAPPDATA%).
+    return os.path.dirname(LAUNCHER_PATH)
 
 
 def slugify(text: str) -> str:
@@ -124,7 +142,7 @@ class RE4ModUpdater(ctk.CTk):
         self.resizable(True, True)
 
         self.branches_data = {}
-        self.new_updater_path = None
+        self.new_app_content = None
         self.selected_label = None
         self.selected_slug = None
         self.branch_row_widgets = {}
@@ -143,7 +161,7 @@ class RE4ModUpdater(ctk.CTk):
     # Validaciones
     # ---------------------------------------------------------
     def _validate_game_folder(self) -> bool:
-        return os.path.exists(os.path.join(app_dir(), GAME_EXE_NAME))
+        return os.path.exists(os.path.join(game_dir(), GAME_EXE_NAME))
 
     # ---------------------------------------------------------
     # Estructura general: una sola tarjeta con header + sección de
@@ -216,7 +234,7 @@ class RE4ModUpdater(ctk.CTk):
         left.pack(side="left", fill="x", expand=True)
         ctk.CTkLabel(left, text="Actualización del updater", font=font(12.5, bold=True), text_color=COLOR_LABEL).pack(anchor="w")
         self.lbl_updater_status = ctk.CTkLabel(
-            left, text=f"{UPDATER_VERSION} · Estás al día", font=font(11.5), text_color=COLOR_MUTED_2,
+            left, text=f"{UPDATER_APP_VERSION} · Estás al día", font=font(11.5), text_color=COLOR_MUTED_2,
             wraplength=200, justify="left",
         )
         self.lbl_updater_status.pack(anchor="w", pady=(2, 0))
@@ -476,8 +494,8 @@ class RE4ModUpdater(ctk.CTk):
         threading.Thread(target=self._process_download, args=(self.selected_slug,), daemon=True).start()
 
     def _process_download(self, slug):
-        target_path = os.path.join(app_dir(), DLL_NAME)
-        temp_path = os.path.join(app_dir(), f"{DLL_NAME}.tmp")
+        target_path = os.path.join(game_dir(), DLL_NAME)
+        temp_path = os.path.join(game_dir(), f"{DLL_NAME}.tmp")
 
         try:
             response = requests.get(f"{WORKER_BASE_URL}/download/{slug}", headers=HEADERS, stream=True, timeout=15)
@@ -513,9 +531,9 @@ class RE4ModUpdater(ctk.CTk):
         self.btn_download.configure(text="Descargar", state="normal")
 
     def launch_game(self):
-        game_path = os.path.join(app_dir(), GAME_EXE_NAME)
+        game_path = os.path.join(game_dir(), GAME_EXE_NAME)
         try:
-            subprocess.Popen([game_path], cwd=app_dir())
+            subprocess.Popen([game_path], cwd=game_dir())
         except Exception:
             pass
 
@@ -529,12 +547,12 @@ class RE4ModUpdater(ctk.CTk):
 
     def check_updater_version(self):
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/updater/latest", headers=HEADERS, timeout=10)
+            response = requests.get(f"{WORKER_BASE_URL}/updater/app/latest", headers=HEADERS, timeout=10)
             if response.status_code != 200:
                 self.after(0, self._show_updater_check_error, f"No se pudo verificar (código {response.status_code}).")
                 return
             remote_commit = response.json().get("commit")
-            if remote_commit and remote_commit != UPDATER_VERSION:
+            if remote_commit and remote_commit != UPDATER_APP_VERSION:
                 self.after(0, self._show_updater_available, remote_commit)
             else:
                 self.after(0, self._show_updater_up_to_date)
@@ -542,7 +560,7 @@ class RE4ModUpdater(ctk.CTk):
             self.after(0, self._show_updater_check_error, "Error de conexión al verificar.")
 
     def _show_updater_up_to_date(self):
-        self.lbl_updater_status.configure(text=f"{UPDATER_VERSION} · Estás al día", text_color=COLOR_MUTED_2)
+        self.lbl_updater_status.configure(text=f"{UPDATER_APP_VERSION} · Estás al día", text_color=COLOR_MUTED_2)
         self.btn_check_updater.configure(state="normal")
 
     def _show_updater_check_error(self, message):
@@ -561,22 +579,22 @@ class RE4ModUpdater(ctk.CTk):
         threading.Thread(target=self._download_new_updater, daemon=True).start()
 
     def _download_new_updater(self):
-        # A la carpeta temporal de Windows, no al lado del .exe actual: un
-        # .exe escribiendo otro .exe en su propia carpeta es un patrón que
-        # varios antivirus tratan como sospechoso.
-        new_path = os.path.join(tempfile.gettempdir(), "re4mp_updater_new.exe")
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/updater/download", headers=HEADERS, stream=True, timeout=20)
+            response = requests.get(f"{WORKER_BASE_URL}/updater/app/download", headers=HEADERS, stream=True, timeout=20)
             if response.status_code == 200:
                 total = int(response.headers.get("content-length", 0))
                 downloaded = 0
-                with open(new_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=524288):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            self.after(0, self.updater_progress.set, downloaded / total)
-                self.new_updater_path = new_path
+                chunks = []
+                for chunk in response.iter_content(chunk_size=65536):
+                    chunks.append(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        self.after(0, self.updater_progress.set, downloaded / total)
+                # Se guarda en memoria, no en un archivo temporal: al ser
+                # texto plano no hay ningún problema de bloqueo/antivirus
+                # como había con el .exe, así que no hace falta la cautela
+                # de antes — se escribe directo al aplicar el reinicio.
+                self.new_app_content = b"".join(chunks)
                 self.after(0, self._show_restart_button)
             else:
                 self.after(0, lambda: self._show_updater_download_error("No se pudo descargar la actualización."))
@@ -594,45 +612,26 @@ class RE4ModUpdater(ctk.CTk):
         self.btn_check_updater.configure(text="Reiniciar ahora", state="normal", command=self.apply_updater_update)
 
     def apply_updater_update(self):
-        if not self.new_updater_path or not os.path.exists(self.new_updater_path):
+        if not self.new_app_content:
             return
-
-        if not getattr(sys, "frozen", False):
-            subprocess.Popen([self.new_updater_path])
-            self.destroy()
-            return
-
-        current_exe = sys.executable
-
-        batch_path = os.path.join(tempfile.gettempdir(), "re4mp_updater_swap.bat")
-        batch_content = (
-            "@echo off\r\n"
-            "setlocal\r\n"
-            "set \"OLD_EXE=%~1\"\r\n"
-            "set \"NEW_EXE=%~2\"\r\n"
-            "set \"PID=%~3\"\r\n"
-            ":waitloop\r\n"
-            "tasklist /FI \"PID eq %PID%\" | find \"%PID%\" >nul\r\n"
-            "if not errorlevel 1 (\r\n"
-            "    timeout /t 1 /nobreak >nul\r\n"
-            "    goto waitloop\r\n"
-            ")\r\n"
-            "timeout /t 2 /nobreak >nul\r\n"
-            "del /f /q \"%OLD_EXE%\"\r\n"
-            "move /y \"%NEW_EXE%\" \"%OLD_EXE%\"\r\n"
-            "timeout /t 6 /nobreak >nul\r\n"
-            "start \"\" \"%OLD_EXE%\"\r\n"
-            "del \"%~f0\"\r\n"
-        )
         try:
-            with open(batch_path, "w") as f:
-                f.write(batch_content)
-            subprocess.Popen(
-                ["cmd", "/c", batch_path, current_exe, self.new_updater_path, str(os.getpid())],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
+            # Sobreescribir el .py en disco no genera ningún conflicto: este
+            # proceso ya lo tiene compilado en memoria (bytecode), nada lo
+            # sigue leyendo del archivo — a diferencia de un .exe en
+            # ejecución, que Windows mantiene bloqueado mientras corre.
+            with open(APP_PY_PATH, "wb") as f:
+                f.write(self.new_app_content)
         except Exception:
-            self.lbl_updater_status.configure(text="No se pudo iniciar la actualización.", text_color=COLOR_ERROR)
+            self.lbl_updater_status.configure(text="No se pudo guardar la actualización.", text_color=COLOR_ERROR)
+            return
+
+        try:
+            if getattr(sys, "frozen", False):
+                subprocess.Popen([LAUNCHER_PATH])
+            else:
+                subprocess.Popen([sys.executable, LAUNCHER_PATH])
+        except Exception:
+            self.lbl_updater_status.configure(text="No se pudo reiniciar. Abrí el updater de nuevo a mano.", text_color=COLOR_ERROR)
             return
 
         self.destroy()

@@ -6,58 +6,100 @@ on:
       - main
 
 env:
-  OUTPUT_EXE_NAME: re4mp_updater.exe
   R2_BUCKET: re4mp-builds
-  # Prefijo dentro del bucket, para no mezclarse con los .dll del mod
   R2_PREFIX: updater
 
 jobs:
-  build_and_publish:
-    name: Compilar y publicar updater
+  publish:
+    name: Publicar updater_app.py y (si hace falta) launcher.exe
     runs-on: windows-latest
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          fetch-depth: 0
 
-      - name: Instalar dependencias
-        run: pip install -r requirements.txt
-
-      - name: Generar _config.py y _version.py
+      - name: Detectar si cambió el launcher
+        id: diff
         shell: bash
         run: |
-          echo "CLIENT_API_KEY = \"${{ secrets.CLIENT_API_KEY }}\"" > _config.py
-          echo "UPDATER_VERSION = \"${GITHUB_SHA:0:8}\"" > _version.py
+          # github.event.before es todo ceros en el primer push a la rama
+          # (o si el historial no está disponible); en ese caso, compilamos
+          # igual para asegurarnos de que exista un launcher.exe publicado.
+          if [[ "${{ github.event.before }}" =~ ^0+$ ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            changed_files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+            if echo "$changed_files" | grep -qE '^(launcher\.py|requirements\.txt)$'; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
-      - name: Compilar con PyInstaller
-        run: pyinstaller --onefile --windowed --name re4mp_updater --collect-data=customtkinter updater.py
-
-      - name: Preparar version.txt
+      - name: Preparar commit corto
+        id: meta
         shell: bash
         run: |
-          echo -n "${GITHUB_SHA:0:8}" > version.txt
+          echo "short_sha=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "committed_date=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Publicamos directo a R2, mismo criterio que el pipeline del mod: sin
-      # aws-actions/configure-aws-credentials (intenta validar contra AWS STS,
-      # que no existe para R2), las credenciales van directo como env vars al CLI.
-      - name: Publicar en R2
+      # --- updater_app.py: se publica SIEMPRE, es texto plano y no requiere compilar ---
+      - name: Preparar updater_app.py con la versión real
+        shell: bash
+        run: |
+          sed -i "s/__UPDATER_APP_VERSION__/${{ steps.meta.outputs.short_sha }}/" updater_app.py
+
+      - name: Publicar updater_app.py en R2
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
         run: |
-          aws s3 cp "dist/${OUTPUT_EXE_NAME}" "s3://${R2_BUCKET}/${R2_PREFIX}/${OUTPUT_EXE_NAME}" \
+          aws s3 cp "updater_app.py" "s3://${R2_BUCKET}/${R2_PREFIX}/updater_app.py" \
             --endpoint-url "${{ secrets.R2_ENDPOINT }}" \
-            --metadata "commit=${GITHUB_SHA:0:8},committedDate=$(git show -s --format=%cI HEAD)"
-          aws s3 cp "version.txt" "s3://${R2_BUCKET}/${R2_PREFIX}/version.txt" \
-            --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+            --content-type "text/x-python" \
+            --metadata "commit=${{ steps.meta.outputs.short_sha }},committedDate=${{ steps.meta.outputs.committed_date }}"
+
+      # --- launcher.exe: solo si cambió launcher.py o requirements.txt ---
+      - name: Setup Python
+        if: steps.diff.outputs.changed == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        if: steps.diff.outputs.changed == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Generar _config.py
+        if: steps.diff.outputs.changed == 'true'
+        shell: bash
+        run: echo "CLIENT_API_KEY = \"${{ secrets.CLIENT_API_KEY }}\"" > _config.py
+
+      # --hidden-import=customtkinter: launcher.py no importa customtkinter
+      # directo (lo carga en runtime desde updater_app.py descargado), así
+      # que PyInstaller no lo detecta solo por análisis estático. Sin este
+      # flag, el .exe compila bien pero explota al ejecutar la app real.
+      - name: Compilar launcher con PyInstaller
+        if: steps.diff.outputs.changed == 'true'
+        run: pyinstaller --onefile --windowed --name re4mp_updater --collect-data=customtkinter --hidden-import=customtkinter launcher.py
+
+      - name: Publicar launcher.exe en R2
+        if: steps.diff.outputs.changed == 'true'
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          aws s3 cp "dist/re4mp_updater.exe" "s3://${R2_BUCKET}/${R2_PREFIX}/launcher.exe" \
+            --endpoint-url "${{ secrets.R2_ENDPOINT }}" \
+            --metadata "commit=${{ steps.meta.outputs.short_sha }},committedDate=${{ steps.meta.outputs.committed_date }}"
 
       - name: Upload artifact (respaldo)
+        if: steps.diff.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: re4mp_updater
