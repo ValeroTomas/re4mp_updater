@@ -1,5 +1,4 @@
-import tkinter as tk
-from tkinter import ttk
+import customtkinter as ctk
 import requests
 import re
 import os
@@ -12,16 +11,8 @@ from datetime import datetime, timezone
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
-# La URL del Worker no es secreta (ya es pública, la usa el webhook de
-# GitLab), así que puede vivir acá tranquilamente.
 WORKER_BASE_URL = "https://re4mp-worker.insanyteam-devs-8a9.workers.dev"
 
-# CLIENT_API_KEY y UPDATER_VERSION NO viven en este archivo ni en el repo.
-# Los genera el pipeline de CI (_config.py con la key desde un secret de
-# GitHub, _version.py con el commit corto) justo antes de compilar con
-# PyInstaller, y quedan embebidos en el .exe. En desarrollo local, si no
-# existen esos archivos, cae a variables de entorno / valores de placeholder
-# para poder correr el script sin compilar.
 try:
     from _config import CLIENT_API_KEY
 except ImportError:
@@ -33,22 +24,24 @@ except ImportError:
     UPDATER_VERSION = "dev"
 
 HEADERS = {"X-Api-Key": CLIENT_API_KEY}
-POLLING_INTERVAL_MS = 60000
 GAME_EXE_NAME = "bio4.exe"
 DLL_NAME = "dinput8.dll"
 
-# Paleta simple, oscura, consistente en toda la UI
-COLOR_BG = "#1E1E1E"
-COLOR_BG_PANEL = "#2A2A2A"
-COLOR_TEXT = "#E8E8E8"
-COLOR_MUTED = "#9A9A9A"
-COLOR_ACCENT = "#4CAF50"
-COLOR_ERROR = "#E05555"
-COLOR_WARN = "#E0A030"
+# Colores como tupla (claro, oscuro): customtkinter elige el que corresponde
+# solo al cambiar el modo de apariencia, no hace falta repintar nada a mano.
+COLOR_ACCENT = ("#3d9142", "#4CAF50")
+COLOR_ACCENT_HOVER = ("#357a39", "#3d8b40")
+COLOR_ERROR = ("#c0392b", "#E05555")
+COLOR_WARN = ("#b3720a", "#E0A030")
+COLOR_MUTED = ("#666666", "#9A9A9A")
+COLOR_PANEL = ("#EAEAEA", "#242424")
+COLOR_PANEL_BTN = ("#DADADA", "#3A3A3A")
+COLOR_PANEL_BTN_HOVER = ("#C8C8C8", "#4A4A4A")
+
+ctk.set_default_color_theme("green")
 
 
 def app_dir() -> str:
-    """Carpeta donde vive el .exe compilado (o el script, en desarrollo)."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -78,30 +71,24 @@ def format_date(iso_date: str) -> str:
         return iso_date
 
 
-class RE4ModUpdater:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("RE4MP - Mod Updater")
-        self.root.geometry("380x420")
-        self.root.resizable(False, False)
-        self.root.configure(bg=COLOR_BG)
+class RE4ModUpdater(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        ctk.set_appearance_mode("Dark")
+
+        self.title("RE4MP - Mod Updater")
+        self.geometry("380x460")
+        self.resizable(False, False)
 
         self.branches_data = {}
-        self.branches_raw_dates = {}
         self.new_updater_path = None
 
-        self._build_style()
-
-        # Si no está en la carpeta correcta, mostramos solo el error y no
-        # armamos el resto de la interfaz — no tiene sentido ofrecer
-        # funciones que van a fallar igual.
         if not self._validate_game_folder():
             self._build_folder_error_ui()
             return
 
         self._build_header()
         self._build_updater_section()
-        self._build_separator()
         self._build_branches_section()
 
         threading.Thread(target=self.fetch_branches, daemon=True).start()
@@ -110,47 +97,29 @@ class RE4ModUpdater:
     # ---------------------------------------------------------
     # Setup / validaciones
     # ---------------------------------------------------------
-    def _build_style(self):
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-        style.configure("TCombobox", fieldbackground=COLOR_BG_PANEL, background=COLOR_BG_PANEL)
-        style.configure("Green.Horizontal.TProgressbar", troughcolor=COLOR_BG_PANEL, background=COLOR_ACCENT)
-
     def _validate_game_folder(self) -> bool:
         return os.path.exists(os.path.join(app_dir(), GAME_EXE_NAME))
 
     def _build_folder_error_ui(self):
-        frame = tk.Frame(self.root, bg=COLOR_BG)
-        frame.pack(expand=True, fill="both", padx=20, pady=20)
-        tk.Label(
-            frame,
-            text="⚠",
-            font=("Arial", 32),
-            fg=COLOR_ERROR,
-            bg=COLOR_BG,
-        ).pack(pady=(10, 5))
-        tk.Label(
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        frame.pack(expand=True, fill="both", padx=24, pady=24)
+        ctk.CTkLabel(frame, text="⚠", font=ctk.CTkFont(size=36), text_color=COLOR_ERROR).pack(pady=(10, 5))
+        ctk.CTkLabel(
             frame,
             text=f"No se encontró {GAME_EXE_NAME} en esta carpeta.",
-            font=("Segoe UI", 11, "bold"),
-            fg=COLOR_TEXT,
-            bg=COLOR_BG,
+            font=ctk.CTkFont(size=14, weight="bold"),
             wraplength=320,
             justify="center",
         ).pack(pady=(0, 8))
-        tk.Label(
+        ctk.CTkLabel(
             frame,
             text=(
                 "Movés este .exe a la carpeta donde está instalado "
-                "Resident Evil 4 (2005) UHD, junto al ejecutable del juego, "
-                "y lo volvés a abrir desde ahí."
+                "Resident Evil 4 (2005) UHD, junto al ejecutable del "
+                "juego, y lo volvés a abrir desde ahí."
             ),
-            font=("Segoe UI", 9),
-            fg=COLOR_MUTED,
-            bg=COLOR_BG,
+            font=ctk.CTkFont(size=12),
+            text_color=COLOR_MUTED,
             wraplength=320,
             justify="center",
         ).pack()
@@ -159,85 +128,96 @@ class RE4ModUpdater:
     # UI
     # ---------------------------------------------------------
     def _build_header(self):
-        header = tk.Frame(self.root, bg=COLOR_BG)
+        header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=(18, 10))
-        tk.Label(
-            header, text="RE4MP", font=("Segoe UI", 16, "bold"), fg=COLOR_TEXT, bg=COLOR_BG
-        ).pack(anchor="w")
-        tk.Label(
-            header, text="Mod Updater", font=("Segoe UI", 9), fg=COLOR_MUTED, bg=COLOR_BG
-        ).pack(anchor="w")
+
+        title_col = ctk.CTkFrame(header, fg_color="transparent")
+        title_col.pack(side="left")
+        ctk.CTkLabel(title_col, text="RE4MP", font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(title_col, text="Mod Updater", font=ctk.CTkFont(size=11), text_color=COLOR_MUTED).pack(anchor="w")
+
+        self.theme_btn = ctk.CTkButton(
+            header, text="☀", width=36, height=36, corner_radius=18,
+            fg_color=COLOR_PANEL_BTN, hover_color=COLOR_PANEL_BTN_HOVER,
+            text_color=("#333333", "#EEEEEE"), command=self.toggle_theme,
+        )
+        self.theme_btn.pack(side="right")
+
+    def toggle_theme(self):
+        current = ctk.get_appearance_mode()  # "Light" o "Dark"
+        if current == "Dark":
+            ctk.set_appearance_mode("Light")
+            self.theme_btn.configure(text="🌙")
+        else:
+            ctk.set_appearance_mode("Dark")
+            self.theme_btn.configure(text="☀")
 
     def _build_updater_section(self):
-        panel = tk.Frame(self.root, bg=COLOR_BG_PANEL)
-        panel.pack(fill="x", padx=20, pady=(0, 10))
+        panel = ctk.CTkFrame(self, fg_color=COLOR_PANEL, corner_radius=14)
+        panel.pack(fill="x", padx=20, pady=(0, 14))
 
-        row = tk.Frame(panel, bg=COLOR_BG_PANEL)
-        row.pack(fill="x", padx=12, pady=10)
+        row = ctk.CTkFrame(panel, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=12)
 
-        left = tk.Frame(row, bg=COLOR_BG_PANEL)
+        left = ctk.CTkFrame(row, fg_color="transparent")
         left.pack(side="left", fill="x", expand=True)
-        tk.Label(
+        ctk.CTkLabel(
             left, text=f"Versión del updater: {UPDATER_VERSION}",
-            font=("Segoe UI", 9), fg=COLOR_MUTED, bg=COLOR_BG_PANEL,
+            font=ctk.CTkFont(size=11), text_color=COLOR_MUTED,
         ).pack(anchor="w")
-        self.lbl_updater_status = tk.Label(
-            left, text="", font=("Segoe UI", 9, "bold"), fg=COLOR_MUTED, bg=COLOR_BG_PANEL,
-            wraplength=220, justify="left",
+        self.lbl_updater_status = ctk.CTkLabel(
+            left, text="", font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLOR_MUTED, wraplength=210, justify="left",
         )
         self.lbl_updater_status.pack(anchor="w", pady=(3, 0))
 
-        self.btn_check_updater = tk.Button(
-            row, text="Buscar\nactualización", command=self.start_updater_check_thread,
-            bg="#3A3A3A", fg=COLOR_TEXT, activebackground="#4A4A4A", activeforeground=COLOR_TEXT,
-            relief="flat", font=("Segoe UI", 8), width=12,
+        self.btn_check_updater = ctk.CTkButton(
+            row, text="Buscar\nactualización", width=110, height=44, corner_radius=10,
+            fg_color=COLOR_PANEL_BTN, hover_color=COLOR_PANEL_BTN_HOVER,
+            text_color=("#333333", "#EEEEEE"), font=ctk.CTkFont(size=11),
+            command=self.start_updater_check_thread,
         )
         self.btn_check_updater.pack(side="right")
 
-    def _build_separator(self):
-        tk.Frame(self.root, bg="#3A3A3A", height=1).pack(fill="x", padx=20, pady=6)
-
     def _build_branches_section(self):
-        panel = tk.Frame(self.root, bg=COLOR_BG)
-        panel.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+        panel = ctk.CTkFrame(self, fg_color="transparent")
+        panel.pack(fill="both", expand=True, padx=20, pady=(0, 18))
 
-        header_row = tk.Frame(panel, bg=COLOR_BG)
+        header_row = ctk.CTkFrame(panel, fg_color="transparent")
         header_row.pack(fill="x")
-        tk.Label(
-            header_row, text="Rama del mod", font=("Segoe UI", 10, "bold"),
-            fg=COLOR_TEXT, bg=COLOR_BG,
-        ).pack(side="left")
-        tk.Button(
-            header_row, text="↻ Actualizar", command=self.start_refresh_branches_thread,
-            bg="#3A3A3A", fg=COLOR_TEXT, activebackground="#4A4A4A", activeforeground=COLOR_TEXT,
-            relief="flat", font=("Segoe UI", 8),
+        ctk.CTkLabel(header_row, text="Rama del mod", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        ctk.CTkButton(
+            header_row, text="↻ Actualizar", width=100, height=28, corner_radius=8,
+            fg_color=COLOR_PANEL_BTN, hover_color=COLOR_PANEL_BTN_HOVER,
+            text_color=("#333333", "#EEEEEE"), font=ctk.CTkFont(size=11),
+            command=self.start_refresh_branches_thread,
         ).pack(side="right")
 
-        self.combo_var = tk.StringVar(value="Cargando ramas...")
-        self.combo = ttk.Combobox(panel, textvariable=self.combo_var, state="disabled", width=38)
-        self.combo.pack(pady=(8, 5), fill="x")
-        self.combo.bind("<<ComboboxSelected>>", self.on_branch_select)
-
-        self.progress = ttk.Progressbar(
-            panel, mode="indeterminate", length=200, style="Green.Horizontal.TProgressbar"
+        self.combo_var = ctk.StringVar(value="Cargando ramas...")
+        self.combo = ctk.CTkComboBox(
+            panel, variable=self.combo_var, state="disabled", width=340, corner_radius=10,
+            command=self.on_branch_select,
         )
+        self.combo.pack(pady=(10, 8), fill="x")
+
+        self.progress = ctk.CTkProgressBar(panel, mode="indeterminate", corner_radius=6)
         self.progress.pack(pady=5, fill="x")
-        self.progress.start(15)
+        self.progress.start()
 
-        self.lbl_date = tk.Label(panel, text="Última actualización: --", fg=COLOR_MUTED, bg=COLOR_BG, font=("Segoe UI", 9))
-        self.lbl_date.pack(pady=(5, 10), anchor="w")
-
-        self.btn_download = tk.Button(
-            panel, text="Descargar e instalar", command=self.start_download_thread,
-            state=tk.DISABLED, bg=COLOR_ACCENT, fg="white", activebackground="#3d8b40",
-            activeforeground="white", relief="flat", font=("Segoe UI", 10, "bold"), pady=6,
+        self.lbl_date = ctk.CTkLabel(
+            panel, text="Última actualización: --", font=ctk.CTkFont(size=11), text_color=COLOR_MUTED,
         )
-        self.btn_download.pack(fill="x", pady=(0, 8))
+        self.lbl_date.pack(pady=(5, 12), anchor="w")
 
-        self.lbl_status = tk.Label(
-            panel, text="", font=("Segoe UI", 9, "bold"), bg=COLOR_BG,
-            wraplength=330, justify="center",
+        self.btn_download = ctk.CTkButton(
+            panel, text="Descargar e instalar", height=42, corner_radius=10,
+            fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(size=13, weight="bold"), state="disabled",
+            command=self.start_download_thread,
         )
+        self.btn_download.pack(fill="x", pady=(0, 10))
+
+        self.lbl_status = ctk.CTkLabel(panel, text="", font=ctk.CTkFont(size=11, weight="bold"), wraplength=330, justify="center")
         self.lbl_status.pack(pady=5)
 
     # ---------------------------------------------------------
@@ -245,10 +225,10 @@ class RE4ModUpdater:
     # ---------------------------------------------------------
     def set_status(self, message, is_error=False, is_warning=False):
         color = COLOR_ERROR if is_error else COLOR_WARN if is_warning else COLOR_ACCENT
-        self.lbl_status.config(text=message, fg=color)
+        self.lbl_status.configure(text=message, text_color=color)
 
     # ---------------------------------------------------------
-    # Ramas del mod (habla con el Worker, no con GitLab directo)
+    # Ramas del mod
     # ---------------------------------------------------------
     def start_refresh_branches_thread(self):
         threading.Thread(target=self.fetch_branches, daemon=True).start()
@@ -259,26 +239,25 @@ class RE4ModUpdater:
             if response.status_code == 200:
                 data = response.json().get("builds", [])
                 self.branches_data = {}
-                self.branches_raw_dates = {}
                 for build in data:
                     label = build.get("branch") or build["slug"]
                     self.branches_data[label] = {
                         "slug": build["slug"],
                         "date": format_date(build.get("committedDate")),
                     }
-                self.root.after(0, self._update_branches_ui_success)
+                self.after(0, self._update_branches_ui_success)
             else:
-                self.root.after(0, self._update_branches_ui_error, f"Error al cargar (código {response.status_code}).")
+                self.after(0, self._update_branches_ui_error, f"Error al cargar (código {response.status_code}).")
         except Exception:
-            self.root.after(0, self._update_branches_ui_error, "Error de conexión al cargar ramas.")
+            self.after(0, self._update_branches_ui_error, "Error de conexión al cargar ramas.")
 
     def _update_branches_ui_success(self):
         self.progress.stop()
         self.progress.pack_forget()
-        self.combo.config(state="readonly")
-        self.combo["values"] = list(self.branches_data.keys())
-        if self.combo["values"]:
-            self.combo.current(0)
+        values = list(self.branches_data.keys())
+        self.combo.configure(state="readonly", values=values)
+        if values:
+            self.combo_var.set(values[0])
             self.on_branch_select()
         else:
             self.combo_var.set("No hay builds publicados")
@@ -289,19 +268,19 @@ class RE4ModUpdater:
         self.combo_var.set("Error de conexión")
         self.set_status(message, is_error=True)
 
-    def on_branch_select(self, event=None):
+    def on_branch_select(self, choice=None):
         selected = self.combo_var.get()
         if selected in self.branches_data:
-            self.lbl_date.config(text=f"Última actualización: {self.branches_data[selected]['date']}")
-            self.btn_download.config(state=tk.NORMAL)
-            self.lbl_status.config(text="")
+            self.lbl_date.configure(text=f"Última actualización: {self.branches_data[selected]['date']}")
+            self.btn_download.configure(state="normal")
+            self.lbl_status.configure(text="")
 
     def start_download_thread(self):
         selected = self.combo_var.get()
         if selected not in self.branches_data:
             return
-        self.btn_download.config(text="Descargando...", state=tk.DISABLED)
-        self.set_status("Descargando desde el servidor...", is_error=False)
+        self.btn_download.configure(text="Descargando...", state="disabled")
+        self.set_status("Descargando desde el servidor...")
         threading.Thread(target=self._process_download, args=(self.branches_data[selected]["slug"],), daemon=True).start()
 
     def _process_download(self, slug):
@@ -317,22 +296,22 @@ class RE4ModUpdater:
 
                 if file_hash(target_path) == file_hash(temp_path):
                     os.remove(temp_path)
-                    self.root.after(0, self.set_status, "Ya tenés instalada esta versión.", False, True)
+                    self.after(0, self.set_status, "Ya tenés instalada esta versión.", False, True)
                 else:
                     os.replace(temp_path, target_path)
-                    self.root.after(0, self.set_status, f"¡Listo! {DLL_NAME} fue actualizado.", False, False)
+                    self.after(0, self.set_status, f"¡Listo! {DLL_NAME} fue actualizado.")
             else:
-                self.root.after(0, self.set_status, f"El archivo no existe (código {response.status_code}).", True)
+                self.after(0, self.set_status, f"El archivo no existe (código {response.status_code}).", True)
         except PermissionError:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            self.root.after(0, self.set_status, "Permiso denegado. Cerrá el juego e intentá de nuevo.", True)
+            self.after(0, self.set_status, "Permiso denegado. Cerrá el juego e intentá de nuevo.", True)
         except Exception:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            self.root.after(0, self.set_status, "Ocurrió un error inesperado al descargar.", True)
+            self.after(0, self.set_status, "Ocurrió un error inesperado al descargar.", True)
         finally:
-            self.root.after(0, lambda: self.btn_download.config(text="Descargar e instalar", state=tk.NORMAL))
+            self.after(0, lambda: self.btn_download.configure(text="Descargar e instalar", state="normal"))
 
     # ---------------------------------------------------------
     # Self-update del propio updater
@@ -347,18 +326,16 @@ class RE4ModUpdater:
                 return
             remote_commit = response.json().get("commit")
             if remote_commit and remote_commit != UPDATER_VERSION:
-                self.root.after(0, self._show_updater_available, remote_commit)
+                self.after(0, self._show_updater_available, remote_commit)
         except Exception:
-            pass  # el chequeo de self-update es best-effort, no bloquea el resto de la app
+            pass
 
     def _show_updater_available(self, remote_commit):
-        self.lbl_updater_status.config(
-            text=f"Hay una versión nueva disponible ({remote_commit})", fg=COLOR_WARN
-        )
-        self.btn_check_updater.config(text="Descargar\nactualización", command=self.start_updater_download_thread)
+        self.lbl_updater_status.configure(text=f"Nueva versión disponible ({remote_commit})", text_color=COLOR_WARN)
+        self.btn_check_updater.configure(text="Descargar\nactualización", command=self.start_updater_download_thread)
 
     def start_updater_download_thread(self):
-        self.btn_check_updater.config(state=tk.DISABLED)
+        self.btn_check_updater.configure(state="disabled")
         threading.Thread(target=self._download_new_updater, daemon=True).start()
 
     def _download_new_updater(self):
@@ -370,38 +347,27 @@ class RE4ModUpdater:
                     for chunk in response.iter_content(chunk_size=1048576):
                         f.write(chunk)
                 self.new_updater_path = new_path
-                self.root.after(0, self._show_restart_button)
+                self.after(0, self._show_restart_button)
             else:
-                self.root.after(0, self.lbl_updater_status.config, {"text": "No se pudo descargar la actualización.", "fg": COLOR_ERROR})
+                self.after(0, lambda: self.lbl_updater_status.configure(text="No se pudo descargar la actualización.", text_color=COLOR_ERROR))
         except Exception:
-            self.root.after(0, self.lbl_updater_status.config, {"text": "Error al descargar la actualización.", "fg": COLOR_ERROR})
+            self.after(0, lambda: self.lbl_updater_status.configure(text="Error al descargar la actualización.", text_color=COLOR_ERROR))
 
     def _show_restart_button(self):
-        self.lbl_updater_status.config(text="Actualización descargada.", fg=COLOR_ACCENT)
-        self.btn_check_updater.config(text="Reiniciar\nahora", state=tk.NORMAL, command=self.apply_updater_update)
+        self.lbl_updater_status.configure(text="Actualización descargada.", text_color=COLOR_ACCENT)
+        self.btn_check_updater.configure(text="Reiniciar\nahora", state="normal", command=self.apply_updater_update)
 
     def apply_updater_update(self):
-        # No se reemplaza el .exe en uso solo: Windows no deja sobreescribir
-        # un binario que está corriendo. Lanzamos el nuevo como proceso
-        # aparte y cerramos este. El usuario decidió que esto sea explícito
-        # (un click en "Reiniciar ahora"), no automático al detectar la
-        # versión nueva.
         if not self.new_updater_path or not os.path.exists(self.new_updater_path):
             return
         try:
             subprocess.Popen([self.new_updater_path])
         except Exception:
-            self.lbl_updater_status.config(text="No se pudo iniciar la nueva versión.", fg=COLOR_ERROR)
+            self.lbl_updater_status.configure(text="No se pudo iniciar la nueva versión.", text_color=COLOR_ERROR)
             return
-        # El .exe viejo queda en la carpeta (no se autoborra): Windows no
-        # permite borrar un binario mientras sigue en ejecución, y este
-        # proceso todavía no terminó de cerrarse en este punto. Para
-        # mantenerlo simple en esta primera versión, el usuario lo borra a
-        # mano una vez confirma que el nuevo abre bien.
-        self.root.destroy()
+        self.destroy()
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = RE4ModUpdater(root)
-    root.mainloop()
+    app = RE4ModUpdater()
+    app.mainloop()

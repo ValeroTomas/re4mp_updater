@@ -34,7 +34,7 @@ jobs:
           echo "UPDATER_VERSION = \"${GITHUB_SHA:0:8}\"" > _version.py
 
       - name: Compilar con PyInstaller
-        run: pyinstaller --onefile --windowed --name re4mp_updater updater.py
+        run: pyinstaller --onefile --windowed --name re4mp_updater --collect-data=customtkinter updater.py
 
       - name: Preparar version.txt
         shell: bash
