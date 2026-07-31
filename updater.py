@@ -410,7 +410,12 @@ class RE4ModUpdater(ctk.CTk):
         threading.Thread(target=self._download_new_updater, daemon=True).start()
 
     def _download_new_updater(self):
-        new_path = os.path.join(app_dir(), "re4mp_updater_new.exe")
+        # A la carpeta temporal de Windows, no al lado del .exe actual: un
+        # .exe escribiendo otro .exe en su propia carpeta es un patrón que
+        # varios antivirus tratan como sospechoso (típico de malware que se
+        # auto-actualiza), y sospechamos que eso interfería con la
+        # ejecución del nuevo binario.
+        new_path = os.path.join(tempfile.gettempdir(), "re4mp_updater_new.exe")
         try:
             response = requests.get(f"{WORKER_BASE_URL}/updater/download", headers=HEADERS, stream=True, timeout=20)
             if response.status_code == 200:
