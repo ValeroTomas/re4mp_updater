@@ -317,18 +317,31 @@ class RE4ModUpdater(ctk.CTk):
     # Self-update del propio updater
     # ---------------------------------------------------------
     def start_updater_check_thread(self):
+        self.btn_check_updater.configure(state="disabled")
+        self.lbl_updater_status.configure(text="Buscando actualización...", text_color=COLOR_MUTED)
         threading.Thread(target=self.check_updater_version, daemon=True).start()
 
     def check_updater_version(self):
         try:
             response = requests.get(f"{WORKER_BASE_URL}/updater/latest", headers=HEADERS, timeout=10)
             if response.status_code != 200:
+                self.after(0, self._show_updater_check_error, f"No se pudo verificar (código {response.status_code}).")
                 return
             remote_commit = response.json().get("commit")
             if remote_commit and remote_commit != UPDATER_VERSION:
                 self.after(0, self._show_updater_available, remote_commit)
+            else:
+                self.after(0, self._show_updater_up_to_date)
         except Exception:
-            pass
+            self.after(0, self._show_updater_check_error, "Error de conexión al verificar.")
+
+    def _show_updater_up_to_date(self):
+        self.lbl_updater_status.configure(text="Estás con la última versión.", text_color=COLOR_ACCENT)
+        self.btn_check_updater.configure(state="normal")
+
+    def _show_updater_check_error(self, message):
+        self.lbl_updater_status.configure(text=message, text_color=COLOR_ERROR)
+        self.btn_check_updater.configure(state="normal")
 
     def _show_updater_available(self, remote_commit):
         self.lbl_updater_status.configure(text=f"Nueva versión disponible ({remote_commit})", text_color=COLOR_WARN)
