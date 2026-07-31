@@ -1,4 +1,6 @@
 import customtkinter as ctk
+import tkinter as tk
+from tkinter import messagebox
 import requests
 import re
 import os
@@ -120,11 +122,6 @@ class RE4ModUpdater(ctk.CTk):
         self.geometry("440x680")
         self.minsize(400, 580)
         self.resizable(True, True)
-        # Sin marco nativo de Windows (sin barra de título, sin bordes del
-        # sistema). Como esto también saca el arrastre y el botón de cerrar
-        # por defecto, hay que reimplementarlos a mano (drag del header +
-        # botón "✕" propio, más abajo).
-        self.overrideredirect(True)
 
         self.branches_data = {}
         self.new_updater_path = None
@@ -147,19 +144,6 @@ class RE4ModUpdater(ctk.CTk):
     # ---------------------------------------------------------
     def _validate_game_folder(self) -> bool:
         return os.path.exists(os.path.join(app_dir(), GAME_EXE_NAME))
-
-    # ---------------------------------------------------------
-    # Arrastre manual de la ventana (reemplaza el que daba la barra de
-    # título nativa que sacamos con overrideredirect).
-    # ---------------------------------------------------------
-    def _start_drag(self, event):
-        self._drag_offset_x = event.x
-        self._drag_offset_y = event.y
-
-    def _do_drag(self, event):
-        x = self.winfo_pointerx() - self._drag_offset_x
-        y = self.winfo_pointery() - self._drag_offset_y
-        self.geometry(f"+{x}+{y}")
 
     # ---------------------------------------------------------
     # Estructura general: una sola tarjeta con header + sección de
@@ -188,10 +172,6 @@ class RE4ModUpdater(ctk.CTk):
     def _build_header(self):
         row = ctk.CTkFrame(self.card, fg_color="transparent")
         row.pack(fill="x", padx=20, pady=(20, 16))
-        # Toda la fila del header sirve para arrastrar la ventana (como si
-        # fuera la barra de título), salvo el botón de cerrar.
-        row.bind("<ButtonPress-1>", self._start_drag)
-        row.bind("<B1-Motion>", self._do_drag)
 
         badge = ctk.CTkFrame(
             row, width=38, height=38, corner_radius=10, fg_color=COLOR_ACCENT_SOFT_BG,
@@ -201,9 +181,6 @@ class RE4ModUpdater(ctk.CTk):
         badge.pack_propagate(False)
         badge_lbl = ctk.CTkLabel(badge, text="🧭", font=font(19))
         badge_lbl.pack(expand=True)
-        for w in (badge, badge_lbl):
-            w.bind("<ButtonPress-1>", self._start_drag)
-            w.bind("<B1-Motion>", self._do_drag)
 
         title_col = ctk.CTkFrame(row, fg_color="transparent")
         title_col.pack(side="left", fill="x", expand=True, padx=(11, 0))
@@ -211,16 +188,6 @@ class RE4ModUpdater(ctk.CTk):
         title_lbl.pack(anchor="w")
         subtitle_lbl = ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED)
         subtitle_lbl.pack(anchor="w")
-        for w in (title_col, title_lbl, subtitle_lbl):
-            w.bind("<ButtonPress-1>", self._start_drag)
-            w.bind("<B1-Motion>", self._do_drag)
-
-        close_btn = ctk.CTkButton(
-            row, text="✕", width=26, height=26, corner_radius=13,
-            fg_color="transparent", hover_color=COLOR_ERROR_BG, text_color=COLOR_MUTED,
-            font=font(12, bold=True), command=self.destroy,
-        )
-        close_btn.pack(side="right", padx=(8, 0))
 
         status_col = ctk.CTkFrame(row, fg_color="transparent")
         status_col.pack(side="right")
@@ -640,6 +607,62 @@ class RE4ModUpdater(ctk.CTk):
         self.destroy()
 
 
+# ---------------------------------------------------------
+# Instancia única: evita que se abran dos updaters al mismo tiempo (por
+# ejemplo, doble click accidental). Usa un archivo de lock con el PID en la
+# carpeta temporal; si el proceso dueño del lock ya no existe (crash previo
+# sin limpiar), lo pisa y sigue en vez de quedar bloqueado para siempre.
+# ---------------------------------------------------------
+def _lock_path():
+    return os.path.join(tempfile.gettempdir(), "re4mp_updater.lock")
+
+
+def _pid_is_running(pid: int) -> bool:
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        return str(pid) in result.stdout
+    except Exception:
+        return False
+
+
+def acquire_single_instance_lock() -> bool:
+    path = _lock_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                old_pid = int(f.read().strip())
+            if _pid_is_running(old_pid):
+                return False
+        except Exception:
+            pass  # lock file corrupto o ilegible: lo pisamos y seguimos
+    with open(path, "w") as f:
+        f.write(str(os.getpid()))
+    return True
+
+
+def release_single_instance_lock():
+    path = _lock_path()
+    try:
+        with open(path, "r") as f:
+            if int(f.read().strip()) == os.getpid():
+                os.remove(path)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    app = RE4ModUpdater()
-    app.mainloop()
+    if not acquire_single_instance_lock():
+        _root = tk.Tk()
+        _root.withdraw()
+        messagebox.showinfo("RE4MP Updater", "Ya hay una instancia del updater abierta.")
+        _root.destroy()
+        sys.exit(0)
+
+    try:
+        app = RE4ModUpdater()
+        app.mainloop()
+    finally:
+        release_single_instance_lock()
