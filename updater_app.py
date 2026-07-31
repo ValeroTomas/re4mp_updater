@@ -8,6 +8,7 @@ import sys
 import subprocess
 import tempfile
 import threading
+import time
 import webbrowser
 import hashlib
 from datetime import datetime, timezone
@@ -298,6 +299,8 @@ class RE4ModUpdater(ctk.CTk):
         self.selected_label = None
         self.selected_slug = None
         self.branch_row_widgets = {}
+        self._is_minimized = False
+        self._is_fading = False
         self.folder_ok = self._validate_game_folder()
 
         self._build_card()
@@ -362,6 +365,7 @@ class RE4ModUpdater(ctk.CTk):
         self._fade_out(callback=self._do_native_minimize)
 
     def _do_native_minimize(self):
+        self._is_minimized = True
         if IS_WINDOWS:
             hwnd = _win_top_level_hwnd(self)
             _user32.ShowWindow(hwnd, _SW_MINIMIZE)
@@ -371,12 +375,26 @@ class RE4ModUpdater(ctk.CTk):
         # y el fade-in de _on_map la vuelve a subir a 1.0 al restaurar.
 
     def _on_map(self, event=None):
+        # <Map> no se dispara solo al restaurar desde la barra de tareas —
+        # también lo dispara Tk internamente por reconstrucciones de
+        # widgets (ej: recargar la lista de ramas), y durante un restore
+        # real puede dispararse más de una vez seguida. Sin esta guarda,
+        # el fade se reiniciaba a mitad de camino en esos casos, lo que se
+        # veía como flickering — no tiene que ver con la animación en sí.
+        if not self._is_minimized:
+            return
+        self._is_minimized = False
         self.update_idletasks()
         self._fade_in()
 
     def _fade_out(self, callback, steps=8, delay=15):
+        if self._is_fading:
+            return
+        self._is_fading = True
+
         def step(i):
             if i > steps:
+                self._is_fading = False
                 callback()
                 return
             self.attributes("-alpha", max(0.0, 1.0 - i / steps))
@@ -384,10 +402,16 @@ class RE4ModUpdater(ctk.CTk):
         step(0)
 
     def _fade_in(self, steps=8, delay=15):
+        if self._is_fading:
+            return
+        self._is_fading = True
+
         def step(i):
             self.attributes("-alpha", min(1.0, i / steps))
             if i < steps:
                 self.after(delay, lambda: step(i + 1))
+            else:
+                self._is_fading = False
         step(0)
 
     def _build_titlebar(self):
@@ -601,7 +625,7 @@ class RE4ModUpdater(ctk.CTk):
         self.loading_bar.start()
         threading.Thread(target=self.fetch_branches, daemon=True).start()
 
-    def fetch_branches(self):
+    def fetch_branches(self, retry_on_failure=True):
         try:
             response = requests.get(f"{WORKER_BASE_URL}/builds", headers=HEADERS, timeout=10)
             if response.status_code == 200:
@@ -615,8 +639,20 @@ class RE4ModUpdater(ctk.CTk):
                     }
                 self.after(0, self._update_branches_ui_success)
             else:
-                self.after(0, self._update_branches_ui_error)
+                self._handle_fetch_failure(retry_on_failure)
         except Exception:
+            self._handle_fetch_failure(retry_on_failure)
+
+    def _handle_fetch_failure(self, retry_on_failure):
+        if retry_on_failure:
+            # Un solo reintento antes de rendirse: sospecha de que un
+            # proceso recién arrancado (típicamente justo después del
+            # self-update) puede tener su primera conexión demorada por
+            # inspección de antivirus/firewall — el segundo intento, un
+            # instante después, suele andar bien.
+            time.sleep(1.5)
+            self.fetch_branches(retry_on_failure=False)
+        else:
             self.after(0, self._update_branches_ui_error)
 
     def _update_branches_ui_success(self):
