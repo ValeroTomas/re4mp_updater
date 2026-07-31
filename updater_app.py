@@ -192,6 +192,8 @@ if IS_WINDOWS:
     _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
     _user32.SetForegroundWindow.restype = wintypes.BOOL
     _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    _user32.IsIconic.restype = wintypes.BOOL
+    _user32.IsIconic.argtypes = [wintypes.HWND]
     _user32.GetWindowRect.restype = wintypes.BOOL
     _user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     _user32.SetWindowRgn.restype = ctypes.c_int
@@ -312,6 +314,7 @@ class RE4ModUpdater(ctk.CTk):
         # (incluida la restauración desde la barra de tareas); ahí
         # disparamos el fade-in y forzamos un redraw por si el layout
         # interno quedó desincronizado.
+        self.bind("<Unmap>", self._on_unmap)
         self.bind("<Map>", self._on_map)
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
@@ -365,22 +368,31 @@ class RE4ModUpdater(ctk.CTk):
         self._fade_out(callback=self._do_native_minimize)
 
     def _do_native_minimize(self):
-        self._is_minimized = True
         if IS_WINDOWS:
             hwnd = _win_top_level_hwnd(self)
             _user32.ShowWindow(hwnd, _SW_MINIMIZE)
         else:
             self.iconify()
-        # Queda en alpha 0 mientras está minimizada; no importa (no se ve),
-        # y el fade-in de _on_map la vuelve a subir a 1.0 al restaurar.
+        # <Unmap> se encarga de marcar _is_minimized (ver _on_unmap) — así
+        # funciona sin importar si el minimizado se disparó desde nuestro
+        # botón, la barra de tareas, o el menú de sistema (click derecho).
+
+    def _on_unmap(self, event=None):
+        # <Unmap> también puede dispararse por reconstrucciones internas de
+        # widgets, no solo por un minimizado real — por eso se confirma
+        # contra el estado real de Windows (IsIconic) antes de actuar. Sin
+        # este chequeo, cualquier Unmap espurio dejaría la ventana entera
+        # en alpha 0 (invisible) sin haberse minimizado de verdad.
+        if IS_WINDOWS:
+            hwnd = _win_top_level_hwnd(self)
+            if not _user32.IsIconic(hwnd):
+                return
+        self._is_minimized = True
+        self.attributes("-alpha", 0.0)
 
     def _on_map(self, event=None):
-        # <Map> no se dispara solo al restaurar desde la barra de tareas —
-        # también lo dispara Tk internamente por reconstrucciones de
-        # widgets (ej: recargar la lista de ramas), y durante un restore
-        # real puede dispararse más de una vez seguida. Sin esta guarda,
-        # el fade se reiniciaba a mitad de camino en esos casos, lo que se
-        # veía como flickering — no tiene que ver con la animación en sí.
+        # Misma lógica de guarda que _on_unmap, en el sentido inverso: solo
+        # animar si veníamos de un minimizado real confirmado.
         if not self._is_minimized:
             return
         self._is_minimized = False
