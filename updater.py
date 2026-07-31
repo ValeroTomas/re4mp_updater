@@ -402,7 +402,7 @@ class RE4ModUpdater(ctk.CTk):
 
     def _show_updater_available(self, remote_commit):
         self.lbl_updater_status.configure(text=f"Nueva versión disponible ({remote_commit})", text_color=COLOR_WARN)
-        self.btn_check_updater.configure(text="Descargar\nactualización", command=self.start_updater_download_thread)
+        self.btn_check_updater.configure(text="Descargar\nactualización", state="normal", command=self.start_updater_download_thread)
 
     def start_updater_download_thread(self):
         self.btn_check_updater.configure(state="disabled", text="Descargando...")
@@ -468,8 +468,15 @@ class RE4ModUpdater(ctk.CTk):
             "    timeout /t 1 /nobreak >nul\r\n"
             "    goto waitloop\r\n"
             ")\r\n"
+            "REM Margen extra: el proceso ya cerro, pero Windows/el antivirus\r\n"
+            "REM pueden tardar un instante mas en soltar el archivo del todo.\r\n"
+            "timeout /t 2 /nobreak >nul\r\n"
             "del /f /q \"%OLD_EXE%\"\r\n"
             "move /y \"%NEW_EXE%\" \"%OLD_EXE%\"\r\n"
+            "REM Margen extra antes de abrirlo: si el antivirus arranca a\r\n"
+            "REM escanear el .exe recien movido, lanzarlo de inmediato puede\r\n"
+            "REM leerlo a medias y corromper la auto-extraccion de PyInstaller.\r\n"
+            "timeout /t 2 /nobreak >nul\r\n"
             "start \"\" \"%OLD_EXE%\"\r\n"
             "del \"%~f0\"\r\n"
         )
