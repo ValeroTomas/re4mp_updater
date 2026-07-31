@@ -1,0 +1,58 @@
+name: Build Updater
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  OUTPUT_EXE_NAME: re4mp_updater.exe
+  R2_BUCKET: re4mp-builds
+  # Prefijo dentro del bucket, para no mezclarse con los .dll del mod
+  R2_PREFIX: updater
+
+jobs:
+  build_and_publish:
+    name: Compilar y publicar updater
+    runs-on: windows-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Compilar con PyInstaller
+        run: pyinstaller --onefile --windowed --name re4mp_updater updater.py
+
+      - name: Preparar version.txt
+        shell: bash
+        run: |
+          echo -n "${GITHUB_SHA:0:8}" > version.txt
+
+      # Publicamos directo a R2, mismo criterio que el pipeline del mod: sin
+      # aws-actions/configure-aws-credentials (intenta validar contra AWS STS,
+      # que no existe para R2), las credenciales van directo como env vars al CLI.
+      - name: Publicar en R2
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          aws s3 cp "dist/${OUTPUT_EXE_NAME}" "s3://${R2_BUCKET}/${R2_PREFIX}/${OUTPUT_EXE_NAME}" \
+            --endpoint-url "${{ secrets.R2_ENDPOINT }}" \
+            --metadata "commit=${GITHUB_SHA:0:8},committedDate=$(git show -s --format=%cI HEAD)"
+          aws s3 cp "version.txt" "s3://${R2_BUCKET}/${R2_PREFIX}/version.txt" \
+            --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+
+      - name: Upload artifact (respaldo)
+        uses: actions/upload-artifact@v4
+        with:
+          name: re4mp_updater
+          path: dist/re4mp_updater.exe
