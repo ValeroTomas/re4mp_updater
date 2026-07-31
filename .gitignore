@@ -3,3 +3,5 @@ dist/
 *.spec
 __pycache__/
 *.pyc
+_config.py
+_version.py

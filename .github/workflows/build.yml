@@ -27,6 +27,12 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
+      - name: Generar _config.py y _version.py
+        shell: bash
+        run: |
+          echo "CLIENT_API_KEY = \"${{ secrets.CLIENT_API_KEY }}\"" > _config.py
+          echo "UPDATER_VERSION = \"${GITHUB_SHA:0:8}\"" > _version.py
+
       - name: Compilar con PyInstaller
         run: pyinstaller --onefile --windowed --name re4mp_updater updater.py
 
