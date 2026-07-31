@@ -153,12 +153,15 @@ if IS_WINDOWS:
     from ctypes import wintypes
 
     _user32 = ctypes.windll.user32
+    _gdi32 = ctypes.windll.gdi32
 
     _GWL_STYLE = -16
     _GWL_EXSTYLE = -20
     _WS_CAPTION = 0x00C00000
     _WS_THICKFRAME = 0x00040000
     _WS_POPUP = 0x80000000
+    _WS_SYSMENU = 0x00080000
+    _WS_MINIMIZEBOX = 0x00020000
     _WS_EX_APPWINDOW = 0x00040000
     _WS_EX_TOOLWINDOW = 0x00000080
     _SWP_NOSIZE = 0x0001
@@ -168,6 +171,7 @@ if IS_WINDOWS:
     _SW_HIDE = 0
     _SW_SHOW = 5
     _SW_SHOWNORMAL = 1
+    _SW_MINIMIZE = 6
 
     # Firmas explícitas: sin esto, ctypes trata los HWND (punteros de 64
     # bits) como c_int (32 bits) por default, lo que trunca el handle en
@@ -187,6 +191,12 @@ if IS_WINDOWS:
     _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
     _user32.SetForegroundWindow.restype = wintypes.BOOL
     _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    _user32.GetWindowRect.restype = wintypes.BOOL
+    _user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    _user32.SetWindowRgn.restype = ctypes.c_int
+    _user32.SetWindowRgn.argtypes = [wintypes.HWND, wintypes.HRGN, wintypes.BOOL]
+    _gdi32.CreateRoundRectRgn.restype = wintypes.HRGN
+    _gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6
 
 
 def _win_top_level_hwnd(root) -> int:
@@ -208,7 +218,7 @@ def apply_borderless_native_window(root):
 
     style = _user32.GetWindowLongPtrW(hwnd, _GWL_STYLE)
     style &= ~(_WS_CAPTION | _WS_THICKFRAME)
-    style |= _WS_POPUP
+    style |= _WS_POPUP | _WS_SYSMENU | _WS_MINIMIZEBOX
     _user32.SetWindowLongPtrW(hwnd, _GWL_STYLE, style)
 
     # Lo que realmente trae de vuelta el ícono en la barra de tareas.
@@ -226,6 +236,33 @@ def apply_borderless_native_window(root):
     win_bring_to_front(root)
 
 
+def apply_rounded_corners(root, radius=16):
+    """
+    La tarjeta ya se dibuja redondeada por software (customtkinter), pero
+    la ventana de Windows en sí seguía siendo un rectángulo — quedaban
+    triangulitos del fondo oscuro asomando en las esquinas. Esto recorta
+    la forma real del HWND con una región de esquinas curvas, para que
+    coincida.
+
+    Nota honesta: usa las dimensiones físicas reales de la ventana
+    (GetWindowRect, no winfo_width/height de Tk, que puede estar en otro
+    espacio de coordenadas si Windows está escalado a más del 100%), pero
+    el radio en sí no se ajusta por DPI — en pantallas con escalado
+    distinto de 100% puede no calzar pixel-perfecto con el radio de la
+    tarjeta interna.
+    """
+    if not IS_WINDOWS:
+        return
+    root.update_idletasks()
+    hwnd = _win_top_level_hwnd(root)
+    rect = wintypes.RECT()
+    _user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    region = _gdi32.CreateRoundRectRgn(0, 0, width, height, radius * 2, radius * 2)
+    _user32.SetWindowRgn(hwnd, region, True)
+
+
 def win_bring_to_front(root):
     if not IS_WINDOWS:
         root.lift()
@@ -237,6 +274,13 @@ def win_bring_to_front(root):
     _user32.SetForegroundWindow(hwnd)
     root.lift()
     root.focus_force()
+    # SetForegroundWindow puede fallar en silencio si Windows considera que
+    # "pasó demasiado tiempo" desde el último input del usuario (nuestro
+    # caso: el launcher tarda un toque bajando updater_app.py antes de
+    # llegar acá). Togglear -topmost no tiene esa restricción y es el
+    # workaround estándar de Tkinter para este problema puntual.
+    root.attributes("-topmost", True)
+    root.after(200, lambda: root.attributes("-topmost", False))
 
 
 class RE4ModUpdater(ctk.CTk):
@@ -258,12 +302,14 @@ class RE4ModUpdater(ctk.CTk):
 
         self._build_card()
         apply_borderless_native_window(self)
+        apply_rounded_corners(self)
         # Al minimizar/restaurar manejamos el HWND directo (ver minimize()),
         # por fuera del tracking normal de estado que hace Tk para ventanas
         # con marco. <Map> se dispara cuando la ventana vuelve a mostrarse
-        # (incluida la restauración desde la barra de tareas); forzamos un
-        # redraw ahí por si el layout interno quedó desincronizado.
-        self.bind("<Map>", lambda e: self.update_idletasks())
+        # (incluida la restauración desde la barra de tareas); ahí
+        # disparamos el fade-in y forzamos un redraw por si el layout
+        # interno quedó desincronizado.
+        self.bind("<Map>", self._on_map)
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         if self.folder_ok:
@@ -313,11 +359,36 @@ class RE4ModUpdater(ctk.CTk):
         self.geometry(f"+{x}+{y}")
 
     def minimize(self):
+        self._fade_out(callback=self._do_native_minimize)
+
+    def _do_native_minimize(self):
         if IS_WINDOWS:
             hwnd = _win_top_level_hwnd(self)
-            _user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+            _user32.ShowWindow(hwnd, _SW_MINIMIZE)
         else:
             self.iconify()
+        # Queda en alpha 0 mientras está minimizada; no importa (no se ve),
+        # y el fade-in de _on_map la vuelve a subir a 1.0 al restaurar.
+
+    def _on_map(self, event=None):
+        self.update_idletasks()
+        self._fade_in()
+
+    def _fade_out(self, callback, steps=8, delay=15):
+        def step(i):
+            if i > steps:
+                callback()
+                return
+            self.attributes("-alpha", max(0.0, 1.0 - i / steps))
+            self.after(delay, lambda: step(i + 1))
+        step(0)
+
+    def _fade_in(self, steps=8, delay=15):
+        def step(i):
+            self.attributes("-alpha", min(1.0, i / steps))
+            if i < steps:
+                self.after(delay, lambda: step(i + 1))
+        step(0)
 
     def _build_titlebar(self):
         # Barra fina y sutil, separada de la tarjeta de marca de abajo:
