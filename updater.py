@@ -77,7 +77,7 @@ class RE4ModUpdater(ctk.CTk):
         ctk.set_appearance_mode("Dark")
 
         self.title("RE4MP - Mod Updater")
-        self.geometry("380x460")
+        self.geometry("400x560")
         self.resizable(False, False)
 
         self.branches_data = {}
@@ -193,21 +193,24 @@ class RE4ModUpdater(ctk.CTk):
             command=self.start_refresh_branches_thread,
         ).pack(side="right")
 
-        self.combo_var = ctk.StringVar(value="Cargando ramas...")
-        self.combo = ctk.CTkComboBox(
-            panel, variable=self.combo_var, state="disabled", width=340, corner_radius=10,
-            command=self.on_branch_select,
+        self.search_var = ctk.StringVar()
+        self.search_entry = ctk.CTkEntry(
+            panel, textvariable=self.search_var, placeholder_text="🔎 Buscar rama...", corner_radius=10, height=34,
         )
-        self.combo.pack(pady=(10, 8), fill="x")
+        self.search_entry.pack(fill="x", pady=(10, 8))
+        self.search_var.trace_add("write", lambda *args: self._render_branch_list())
 
         self.progress = ctk.CTkProgressBar(panel, mode="indeterminate", corner_radius=6)
-        self.progress.pack(pady=5, fill="x")
+        self.progress.pack(pady=(0, 8), fill="x")
         self.progress.start()
 
-        self.lbl_date = ctk.CTkLabel(
-            panel, text="Última actualización: --", font=ctk.CTkFont(size=11), text_color=COLOR_MUTED,
+        self.branch_list_frame = ctk.CTkScrollableFrame(
+            panel, corner_radius=10, fg_color=COLOR_PANEL, height=190,
         )
-        self.lbl_date.pack(pady=(5, 12), anchor="w")
+        self.branch_list_frame.pack(fill="both", expand=True, pady=(0, 12))
+        self.branch_row_widgets = {}
+        self.selected_label = None
+        self.selected_slug = None
 
         self.btn_download = ctk.CTkButton(
             panel, text="Descargar e instalar", height=42, corner_radius=10,
@@ -217,7 +220,7 @@ class RE4ModUpdater(ctk.CTk):
         )
         self.btn_download.pack(fill="x", pady=(0, 10))
 
-        self.lbl_status = ctk.CTkLabel(panel, text="", font=ctk.CTkFont(size=11, weight="bold"), wraplength=330, justify="center")
+        self.lbl_status = ctk.CTkLabel(panel, text="", font=ctk.CTkFont(size=11, weight="bold"), wraplength=340, justify="center")
         self.lbl_status.pack(pady=5)
 
     # ---------------------------------------------------------
@@ -254,34 +257,86 @@ class RE4ModUpdater(ctk.CTk):
     def _update_branches_ui_success(self):
         self.progress.stop()
         self.progress.pack_forget()
-        values = list(self.branches_data.keys())
-        self.combo.configure(state="readonly", values=values)
-        if values:
-            self.combo_var.set(values[0])
-            self.on_branch_select()
+        self._render_branch_list()
+        # Preseleccioná la primera rama de la lista (ordenadas, main/prd
+        # primero si existen) para que el usuario no tenga que tocar nada
+        # si solo quiere la última versión estable.
+        ordered = self._ordered_branch_labels()
+        if ordered:
+            self._select_branch(ordered[0])
         else:
-            self.combo_var.set("No hay builds publicados")
+            self.set_status("No hay builds publicados todavía.", is_warning=True)
 
     def _update_branches_ui_error(self, message):
         self.progress.stop()
         self.progress.pack_forget()
-        self.combo_var.set("Error de conexión")
         self.set_status(message, is_error=True)
 
-    def on_branch_select(self, choice=None):
-        selected = self.combo_var.get()
-        if selected in self.branches_data:
-            self.lbl_date.configure(text=f"Última actualización: {self.branches_data[selected]['date']}")
-            self.btn_download.configure(state="normal")
-            self.lbl_status.configure(text="")
+    def _ordered_branch_labels(self):
+        # main/master/prd primero (son las ramas "estables"), el resto
+        # alfabético — así lo más relevante queda arriba de la lista sin
+        # que el usuario tenga que buscarlo.
+        priority = {"main": 0, "master": 0, "prd": 1}
+        return sorted(
+            self.branches_data.keys(),
+            key=lambda label: (priority.get(label, 2), label.lower()),
+        )
+
+    def _render_branch_list(self):
+        for widget in self.branch_list_frame.winfo_children():
+            widget.destroy()
+        self.branch_row_widgets = {}
+
+        query = self.search_var.get().strip().lower()
+        labels = [l for l in self._ordered_branch_labels() if query in l.lower()]
+
+        if not labels:
+            ctk.CTkLabel(
+                self.branch_list_frame, text="Sin resultados", text_color=COLOR_MUTED, font=ctk.CTkFont(size=11),
+            ).pack(pady=10)
+            return
+
+        for label in labels:
+            self._add_branch_row(label)
+
+    def _add_branch_row(self, label):
+        is_selected = label == self.selected_label
+        row = ctk.CTkFrame(
+            self.branch_list_frame, corner_radius=8,
+            fg_color=COLOR_ACCENT if is_selected else "transparent",
+        )
+        row.pack(fill="x", padx=4, pady=3)
+
+        text_color = "white" if is_selected else ("#1a1a1a", "#EEEEEE")
+        date_color = ("#e8f5e9", "#dddddd") if is_selected else COLOR_MUTED
+
+        name_lbl = ctk.CTkLabel(row, text=label, font=ctk.CTkFont(size=12, weight="bold"), text_color=text_color, anchor="w")
+        name_lbl.pack(fill="x", padx=10, pady=(6, 0))
+        date_lbl = ctk.CTkLabel(
+            row, text=self.branches_data[label]["date"], font=ctk.CTkFont(size=10), text_color=date_color, anchor="w",
+        )
+        date_lbl.pack(fill="x", padx=10, pady=(0, 6))
+
+        for widget in (row, name_lbl, date_lbl):
+            widget.bind("<Button-1>", lambda e, l=label: self._select_branch(l))
+
+        self.branch_row_widgets[label] = row
+
+    def _select_branch(self, label):
+        if label not in self.branches_data:
+            return
+        self.selected_label = label
+        self.selected_slug = self.branches_data[label]["slug"]
+        self._render_branch_list()
+        self.btn_download.configure(state="normal")
+        self.lbl_status.configure(text="")
 
     def start_download_thread(self):
-        selected = self.combo_var.get()
-        if selected not in self.branches_data:
+        if not self.selected_slug:
             return
         self.btn_download.configure(text="Descargando...", state="disabled")
         self.set_status("Descargando desde el servidor...")
-        threading.Thread(target=self._process_download, args=(self.branches_data[selected]["slug"],), daemon=True).start()
+        threading.Thread(target=self._process_download, args=(self.selected_slug,), daemon=True).start()
 
     def _process_download(self, slug):
         target_path = os.path.join(app_dir(), DLL_NAME)
