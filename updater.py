@@ -180,7 +180,11 @@ class RE4ModUpdater(ctk.CTk):
         badge.pack(side="left")
         badge.pack_propagate(False)
         badge_lbl = ctk.CTkLabel(badge, text="🧭", font=font(19))
-        badge_lbl.pack(expand=True)
+        # pack(expand=True) lo centra según las métricas de 'Segoe UI', pero
+        # el emoji en sí se renderiza con la fuente de reemplazo Segoe UI
+        # Emoji, que tiene otro alto/descenso — visualmente queda corrido
+        # hacia abajo si se centra "a ciegas". Se compensa con place().
+        badge_lbl.place(relx=0.5, rely=0.46, anchor="center")
 
         title_col = ctk.CTkFrame(row, fg_color="transparent")
         title_col.pack(side="left", fill="x", expand=True, padx=(11, 0))
@@ -418,22 +422,49 @@ class RE4ModUpdater(ctk.CTk):
         date_lbl = ctk.CTkLabel(text_col, text=f"Actualizado {self.branches_data[label]['date']}", font=font(11), text_color=date_color, anchor="w")
         date_lbl.pack(fill="x")
 
+        dot_lbl = None
         if is_selected:
-            ctk.CTkLabel(inner, text="●", font=font(13), text_color=COLOR_ACCENT).pack(side="right")
+            dot_lbl = ctk.CTkLabel(inner, text="●", font=font(13), text_color=COLOR_ACCENT)
+            dot_lbl.pack(side="right")
 
         for widget in (row, inner, text_col, name_lbl, date_lbl):
             widget.bind("<Button-1>", lambda e, l=label: self._select_branch(l))
 
-        self.branch_row_widgets[label] = row
+        self.branch_row_widgets[label] = {"row": row, "inner": inner, "name_lbl": name_lbl, "date_lbl": date_lbl, "dot_lbl": dot_lbl}
+
+    def _restyle_row(self, label, selected):
+        refs = self.branch_row_widgets.get(label)
+        if not refs:
+            return  # la fila no está actualmente renderizada (ej: filtrada por búsqueda)
+
+        refs["row"].configure(
+            fg_color=COLOR_ACCENT_SOFT_BG if selected else COLOR_BRANCH_BG,
+            border_color=COLOR_ACCENT if selected else COLOR_PANEL_BORDER,
+            border_width=2 if selected else 1,
+        )
+        refs["name_lbl"].configure(text_color=COLOR_TITLE if selected else COLOR_BRANCH_NAME)
+        refs["date_lbl"].configure(text_color=COLOR_LABEL if selected else COLOR_BRANCH_DATE)
+
+        if selected and refs["dot_lbl"] is None:
+            dot = ctk.CTkLabel(refs["inner"], text="●", font=font(13), text_color=COLOR_ACCENT)
+            dot.pack(side="right")
+            dot.bind("<Button-1>", lambda e, l=label: self._select_branch(l))
+            refs["dot_lbl"] = dot
+        elif not selected and refs["dot_lbl"] is not None:
+            refs["dot_lbl"].destroy()
+            refs["dot_lbl"] = None
 
     def _select_branch(self, label):
         if label not in self.branches_data:
             return
+        previous = self.selected_label
         self.selected_label = label
         self.selected_slug = self.branches_data[label]["slug"]
         self.success_panel.pack_forget()
         self.download_controls.pack(fill="x")
-        self._render_branch_list()
+        if previous and previous != label:
+            self._restyle_row(previous, selected=False)
+        self._restyle_row(label, selected=True)
         self.btn_download.configure(state="normal")
         self.lbl_status.configure(text="")
 
