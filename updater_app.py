@@ -291,6 +291,7 @@ class RE4ModUpdater(ctk.CTk):
         )
         self.card.pack(fill="both", expand=True)
 
+        self._build_titlebar()
         self._build_header()
         self._build_updater_section()
 
@@ -318,14 +319,45 @@ class RE4ModUpdater(ctk.CTk):
         else:
             self.iconify()
 
-    def _build_header(self):
-        header_bar = ctk.CTkFrame(
-            self.card, fg_color=COLOR_INNER, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=12,
-        )
-        header_bar.pack(fill="x", padx=12, pady=(12, 0))
+    def _build_titlebar(self):
+        # Barra fina y sutil, separada de la tarjeta de marca de abajo:
+        # esta es la única zona de arrastre real, con hover en vez de
+        # cambio de cursor como referencia visual de que ahí se agarra.
+        bar = ctk.CTkFrame(self.card, fg_color=COLOR_PANEL, corner_radius=10, height=30)
+        bar.pack(fill="x", padx=1, pady=(1, 0))
+        bar.pack_propagate(False)
 
-        row = ctk.CTkFrame(header_bar, fg_color="transparent")
-        row.pack(fill="x", padx=8, pady=8)
+        def on_enter(_event=None):
+            bar.configure(fg_color=COLOR_INNER)
+
+        def on_leave(_event=None):
+            bar.configure(fg_color=COLOR_PANEL)
+
+        bar.bind("<ButtonPress-1>", self._start_drag)
+        bar.bind("<B1-Motion>", self._do_drag)
+        bar.bind("<Enter>", on_enter)
+        bar.bind("<Leave>", on_leave)
+
+        btn_row = ctk.CTkFrame(bar, fg_color="transparent")
+        btn_row.pack(side="right", padx=6, pady=3)
+
+        close_btn = ctk.CTkButton(
+            btn_row, text="✕", width=22, height=22, corner_radius=11,
+            fg_color="transparent", hover_color=COLOR_ERROR_BG, text_color=COLOR_MUTED,
+            font=font(11, bold=True), command=self.destroy,
+        )
+        close_btn.pack(side="right")
+
+        minimize_btn = ctk.CTkButton(
+            btn_row, text="—", width=22, height=22, corner_radius=11,
+            fg_color="transparent", hover_color=COLOR_PANEL_BORDER, text_color=COLOR_MUTED,
+            font=font(11, bold=True), command=self.minimize,
+        )
+        minimize_btn.pack(side="right", padx=(0, 4))
+
+    def _build_header(self):
+        row = ctk.CTkFrame(self.card, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(14, 16))
 
         badge = ctk.CTkFrame(
             row, width=38, height=38, corner_radius=10, fg_color=COLOR_ACCENT_SOFT_BG,
@@ -346,29 +378,6 @@ class RE4ModUpdater(ctk.CTk):
         title_lbl.pack(anchor="w")
         subtitle_lbl = ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED)
         subtitle_lbl.pack(anchor="w")
-
-        # Toda la barra sirve para arrastrar la ventana (como si fuera la
-        # barra de título nativa). El fondo distinto del resto de la
-        # tarjeta + el cursor de "mover" son la referencia visual de que
-        # ahí se agarra.
-        for w in (header_bar, row, badge, badge_lbl, title_col, title_lbl, subtitle_lbl):
-            w.bind("<ButtonPress-1>", self._start_drag)
-            w.bind("<B1-Motion>", self._do_drag)
-            w.configure(cursor="fleur")
-
-        close_btn = ctk.CTkButton(
-            row, text="✕", width=26, height=26, corner_radius=13,
-            fg_color="transparent", hover_color=COLOR_ERROR_BG, text_color=COLOR_MUTED,
-            font=font(12, bold=True), command=self.destroy,
-        )
-        close_btn.pack(side="right", padx=(6, 0))
-
-        minimize_btn = ctk.CTkButton(
-            row, text="—", width=26, height=26, corner_radius=13,
-            fg_color="transparent", hover_color=COLOR_PANEL_BORDER, text_color=COLOR_MUTED,
-            font=font(12, bold=True), command=self.minimize,
-        )
-        minimize_btn.pack(side="right", padx=(8, 0))
 
         status_col = ctk.CTkFrame(row, fg_color="transparent")
         status_col.pack(side="right")
