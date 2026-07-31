@@ -138,22 +138,6 @@ class RE4ModUpdater(ctk.CTk):
         ctk.CTkLabel(title_col, text="RE4MP", font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
         ctk.CTkLabel(title_col, text="Mod Updater", font=ctk.CTkFont(size=11), text_color=COLOR_MUTED).pack(anchor="w")
 
-        self.theme_btn = ctk.CTkButton(
-            header, text="☀", width=36, height=36, corner_radius=18,
-            fg_color=COLOR_PANEL_BTN, hover_color=COLOR_PANEL_BTN_HOVER,
-            text_color=("#333333", "#EEEEEE"), command=self.toggle_theme,
-        )
-        self.theme_btn.pack(side="right")
-
-    def toggle_theme(self):
-        current = ctk.get_appearance_mode()  # "Light" o "Dark"
-        if current == "Dark":
-            ctk.set_appearance_mode("Light")
-            self.theme_btn.configure(text="🌙")
-        else:
-            ctk.set_appearance_mode("Dark")
-            self.theme_btn.configure(text="☀")
-
     def _build_updater_section(self):
         panel = ctk.CTkFrame(self, fg_color=COLOR_PANEL, corner_radius=14)
         panel.pack(fill="x", padx=20, pady=(0, 14))
@@ -180,6 +164,10 @@ class RE4ModUpdater(ctk.CTk):
             command=self.start_updater_check_thread,
         )
         self.btn_check_updater.pack(side="right")
+
+        # Oculta hasta que arranca una descarga real (self.updater_progress.pack(...)).
+        self.updater_progress = ctk.CTkProgressBar(panel, mode="determinate", corner_radius=6)
+        self.updater_progress.set(0)
 
     def _build_branches_section(self):
         panel = ctk.CTkFrame(self, fg_color="transparent")
@@ -407,6 +395,8 @@ class RE4ModUpdater(ctk.CTk):
     def start_updater_download_thread(self):
         self.btn_check_updater.configure(state="disabled", text="Descargando...")
         self.lbl_updater_status.configure(text="Descargando actualización...", text_color=COLOR_MUTED)
+        self.updater_progress.set(0)
+        self.updater_progress.pack(fill="x", padx=14, pady=(0, 12))
         threading.Thread(target=self._download_new_updater, daemon=True).start()
 
     def _download_new_updater(self):
@@ -419,9 +409,14 @@ class RE4ModUpdater(ctk.CTk):
         try:
             response = requests.get(f"{WORKER_BASE_URL}/updater/download", headers=HEADERS, stream=True, timeout=20)
             if response.status_code == 200:
+                total = int(response.headers.get("content-length", 0))
+                downloaded = 0
                 with open(new_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=1048576):
+                    for chunk in response.iter_content(chunk_size=524288):
                         f.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            self.after(0, self.updater_progress.set, downloaded / total)
                 self.new_updater_path = new_path
                 self.after(0, self._show_restart_button)
             else:
@@ -430,10 +425,12 @@ class RE4ModUpdater(ctk.CTk):
             self.after(0, lambda: self._show_updater_download_error("Error al descargar la actualización."))
 
     def _show_updater_download_error(self, message):
+        self.updater_progress.pack_forget()
         self.lbl_updater_status.configure(text=message, text_color=COLOR_ERROR)
         self.btn_check_updater.configure(state="normal", text="Buscar\nactualización", command=self.start_updater_check_thread)
 
     def _show_restart_button(self):
+        self.updater_progress.pack_forget()
         self.lbl_updater_status.configure(text="Actualización lista para instalar.", text_color=COLOR_ACCENT)
         self.btn_check_updater.configure(text="Reiniciar\nahora", state="normal", command=self.apply_updater_update)
 
