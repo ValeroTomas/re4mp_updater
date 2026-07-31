@@ -245,8 +245,8 @@ class RE4ModUpdater(ctk.CTk):
         self.configure(fg_color=COLOR_BG)
         self.title("RE4MP - Mod Updater")
         self.geometry("440x680")
-        self.minsize(400, 580)
-        self.resizable(True, True)
+        self.minsize(440, 680)
+        self.resizable(False, False)
         self.overrideredirect(True)
 
         self.branches_data = {}
@@ -258,6 +258,12 @@ class RE4ModUpdater(ctk.CTk):
 
         self._build_card()
         apply_borderless_native_window(self)
+        # Al minimizar/restaurar manejamos el HWND directo (ver minimize()),
+        # por fuera del tracking normal de estado que hace Tk para ventanas
+        # con marco. <Map> se dispara cuando la ventana vuelve a mostrarse
+        # (incluida la restauración desde la barra de tareas); forzamos un
+        # redraw ahí por si el layout interno quedó desincronizado.
+        self.bind("<Map>", lambda e: self.update_idletasks())
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         if self.folder_ok:
@@ -278,7 +284,7 @@ class RE4ModUpdater(ctk.CTk):
     # ---------------------------------------------------------
     def _build_card(self):
         outer = ctk.CTkFrame(self, fg_color="transparent")
-        outer.pack(fill="both", expand=True, padx=20, pady=20)
+        outer.pack(fill="both", expand=True, padx=3, pady=3)
 
         self.card = ctk.CTkFrame(
             outer, fg_color=COLOR_PANEL, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=16,
@@ -305,9 +311,21 @@ class RE4ModUpdater(ctk.CTk):
         y = event.y_root - self._drag_offset_y
         self.geometry(f"+{x}+{y}")
 
+    def minimize(self):
+        if IS_WINDOWS:
+            hwnd = _win_top_level_hwnd(self)
+            _user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+        else:
+            self.iconify()
+
     def _build_header(self):
-        row = ctk.CTkFrame(self.card, fg_color="transparent")
-        row.pack(fill="x", padx=20, pady=(20, 16))
+        header_bar = ctk.CTkFrame(
+            self.card, fg_color=COLOR_INNER, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=12,
+        )
+        header_bar.pack(fill="x", padx=12, pady=(12, 0))
+
+        row = ctk.CTkFrame(header_bar, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=8)
 
         badge = ctk.CTkFrame(
             row, width=38, height=38, corner_radius=10, fg_color=COLOR_ACCENT_SOFT_BG,
@@ -329,18 +347,28 @@ class RE4ModUpdater(ctk.CTk):
         subtitle_lbl = ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED)
         subtitle_lbl.pack(anchor="w")
 
-        # Toda la fila del header sirve para arrastrar la ventana (como si
-        # fuera la barra de título nativa), salvo el botón de cerrar.
-        for w in (row, badge, badge_lbl, title_col, title_lbl, subtitle_lbl):
+        # Toda la barra sirve para arrastrar la ventana (como si fuera la
+        # barra de título nativa). El fondo distinto del resto de la
+        # tarjeta + el cursor de "mover" son la referencia visual de que
+        # ahí se agarra.
+        for w in (header_bar, row, badge, badge_lbl, title_col, title_lbl, subtitle_lbl):
             w.bind("<ButtonPress-1>", self._start_drag)
             w.bind("<B1-Motion>", self._do_drag)
+            w.configure(cursor="fleur")
 
         close_btn = ctk.CTkButton(
             row, text="✕", width=26, height=26, corner_radius=13,
             fg_color="transparent", hover_color=COLOR_ERROR_BG, text_color=COLOR_MUTED,
             font=font(12, bold=True), command=self.destroy,
         )
-        close_btn.pack(side="right", padx=(8, 0))
+        close_btn.pack(side="right", padx=(6, 0))
+
+        minimize_btn = ctk.CTkButton(
+            row, text="—", width=26, height=26, corner_radius=13,
+            fg_color="transparent", hover_color=COLOR_PANEL_BORDER, text_color=COLOR_MUTED,
+            font=font(12, bold=True), command=self.minimize,
+        )
+        minimize_btn.pack(side="right", padx=(8, 0))
 
         status_col = ctk.CTkFrame(row, fg_color="transparent")
         status_col.pack(side="right")
