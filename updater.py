@@ -120,6 +120,11 @@ class RE4ModUpdater(ctk.CTk):
         self.geometry("440x680")
         self.minsize(400, 580)
         self.resizable(True, True)
+        # Sin marco nativo de Windows (sin barra de título, sin bordes del
+        # sistema). Como esto también saca el arrastre y el botón de cerrar
+        # por defecto, hay que reimplementarlos a mano (drag del header +
+        # botón "✕" propio, más abajo).
+        self.overrideredirect(True)
 
         self.branches_data = {}
         self.new_updater_path = None
@@ -142,6 +147,19 @@ class RE4ModUpdater(ctk.CTk):
     # ---------------------------------------------------------
     def _validate_game_folder(self) -> bool:
         return os.path.exists(os.path.join(app_dir(), GAME_EXE_NAME))
+
+    # ---------------------------------------------------------
+    # Arrastre manual de la ventana (reemplaza el que daba la barra de
+    # título nativa que sacamos con overrideredirect).
+    # ---------------------------------------------------------
+    def _start_drag(self, event):
+        self._drag_offset_x = event.x
+        self._drag_offset_y = event.y
+
+    def _do_drag(self, event):
+        x = self.winfo_pointerx() - self._drag_offset_x
+        y = self.winfo_pointery() - self._drag_offset_y
+        self.geometry(f"+{x}+{y}")
 
     # ---------------------------------------------------------
     # Estructura general: una sola tarjeta con header + sección de
@@ -170,6 +188,10 @@ class RE4ModUpdater(ctk.CTk):
     def _build_header(self):
         row = ctk.CTkFrame(self.card, fg_color="transparent")
         row.pack(fill="x", padx=20, pady=(20, 16))
+        # Toda la fila del header sirve para arrastrar la ventana (como si
+        # fuera la barra de título), salvo el botón de cerrar.
+        row.bind("<ButtonPress-1>", self._start_drag)
+        row.bind("<B1-Motion>", self._do_drag)
 
         badge = ctk.CTkFrame(
             row, width=38, height=38, corner_radius=10, fg_color=COLOR_ACCENT_SOFT_BG,
@@ -177,12 +199,28 @@ class RE4ModUpdater(ctk.CTk):
         )
         badge.pack(side="left")
         badge.pack_propagate(False)
-        ctk.CTkLabel(badge, text="🧭", font=font(19)).pack(expand=True)
+        badge_lbl = ctk.CTkLabel(badge, text="🧭", font=font(19))
+        badge_lbl.pack(expand=True)
+        for w in (badge, badge_lbl):
+            w.bind("<ButtonPress-1>", self._start_drag)
+            w.bind("<B1-Motion>", self._do_drag)
 
         title_col = ctk.CTkFrame(row, fg_color="transparent")
         title_col.pack(side="left", fill="x", expand=True, padx=(11, 0))
-        ctk.CTkLabel(title_col, text="RE4MP", font=font(19, bold=True), text_color=COLOR_TITLE).pack(anchor="w")
-        ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED).pack(anchor="w")
+        title_lbl = ctk.CTkLabel(title_col, text="RE4MP", font=font(19, bold=True), text_color=COLOR_TITLE)
+        title_lbl.pack(anchor="w")
+        subtitle_lbl = ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED)
+        subtitle_lbl.pack(anchor="w")
+        for w in (title_col, title_lbl, subtitle_lbl):
+            w.bind("<ButtonPress-1>", self._start_drag)
+            w.bind("<B1-Motion>", self._do_drag)
+
+        close_btn = ctk.CTkButton(
+            row, text="✕", width=26, height=26, corner_radius=13,
+            fg_color="transparent", hover_color=COLOR_ERROR_BG, text_color=COLOR_MUTED,
+            font=font(12, bold=True), command=self.destroy,
+        )
+        close_btn.pack(side="right", padx=(8, 0))
 
         status_col = ctk.CTkFrame(row, fg_color="transparent")
         status_col.pack(side="right")
@@ -408,13 +446,15 @@ class RE4ModUpdater(ctk.CTk):
         text_col.pack(side="left", fill="x", expand=True)
         name_color = COLOR_TITLE if is_selected else COLOR_BRANCH_NAME
         date_color = COLOR_LABEL if is_selected else COLOR_BRANCH_DATE
-        ctk.CTkLabel(text_col, text=label, font=font(13, bold=True), text_color=name_color, anchor="w").pack(fill="x")
-        ctk.CTkLabel(text_col, text=f"Actualizado {self.branches_data[label]['date']}", font=font(11), text_color=date_color, anchor="w").pack(fill="x")
+        name_lbl = ctk.CTkLabel(text_col, text=label, font=font(13, bold=True), text_color=name_color, anchor="w")
+        name_lbl.pack(fill="x")
+        date_lbl = ctk.CTkLabel(text_col, text=f"Actualizado {self.branches_data[label]['date']}", font=font(11), text_color=date_color, anchor="w")
+        date_lbl.pack(fill="x")
 
         if is_selected:
             ctk.CTkLabel(inner, text="●", font=font(13), text_color=COLOR_ACCENT).pack(side="right")
 
-        for widget in (row, inner, text_col):
+        for widget in (row, inner, text_col, name_lbl, date_lbl):
             widget.bind("<Button-1>", lambda e, l=label: self._select_branch(l))
 
         self.branch_row_widgets[label] = row
