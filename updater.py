@@ -109,7 +109,7 @@ def format_relative(iso_date: str) -> str:
 
 
 def font(size, bold=False):
-    return ctk.CTkFont(family="Segoe UI", size=size, weight="bold" if bold else "normal")
+    return ctk.CTkFont(family="Segoe UI", size=int(round(size)), weight="bold" if bold else "normal")
 
 
 class RE4ModUpdater(ctk.CTk):
