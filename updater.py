@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import subprocess
+import tempfile
 import threading
 import hashlib
 from datetime import datetime, timezone
@@ -403,7 +404,8 @@ class RE4ModUpdater(ctk.CTk):
         self.btn_check_updater.configure(text="Descargar\nactualización", command=self.start_updater_download_thread)
 
     def start_updater_download_thread(self):
-        self.btn_check_updater.configure(state="disabled")
+        self.btn_check_updater.configure(state="disabled", text="Descargando...")
+        self.lbl_updater_status.configure(text="Descargando actualización...", text_color=COLOR_MUTED)
         threading.Thread(target=self._download_new_updater, daemon=True).start()
 
     def _download_new_updater(self):
@@ -417,22 +419,70 @@ class RE4ModUpdater(ctk.CTk):
                 self.new_updater_path = new_path
                 self.after(0, self._show_restart_button)
             else:
-                self.after(0, lambda: self.lbl_updater_status.configure(text="No se pudo descargar la actualización.", text_color=COLOR_ERROR))
+                self.after(0, lambda: self._show_updater_download_error("No se pudo descargar la actualización."))
         except Exception:
-            self.after(0, lambda: self.lbl_updater_status.configure(text="Error al descargar la actualización.", text_color=COLOR_ERROR))
+            self.after(0, lambda: self._show_updater_download_error("Error al descargar la actualización."))
+
+    def _show_updater_download_error(self, message):
+        self.lbl_updater_status.configure(text=message, text_color=COLOR_ERROR)
+        self.btn_check_updater.configure(state="normal", text="Buscar\nactualización", command=self.start_updater_check_thread)
 
     def _show_restart_button(self):
-        self.lbl_updater_status.configure(text="Actualización descargada.", text_color=COLOR_ACCENT)
+        self.lbl_updater_status.configure(text="Actualización lista para instalar.", text_color=COLOR_ACCENT)
         self.btn_check_updater.configure(text="Reiniciar\nahora", state="normal", command=self.apply_updater_update)
 
     def apply_updater_update(self):
         if not self.new_updater_path or not os.path.exists(self.new_updater_path):
             return
-        try:
+
+        if not getattr(sys, "frozen", False):
+            # En desarrollo (corriendo el .py, no un .exe compilado) no hay
+            # un binario propio que reemplazar de verdad — solo abrimos la
+            # nueva versión descargada tal cual.
             subprocess.Popen([self.new_updater_path])
-        except Exception:
-            self.lbl_updater_status.configure(text="No se pudo iniciar la nueva versión.", text_color=COLOR_ERROR)
+            self.destroy()
             return
+
+        current_exe = sys.executable
+
+        # No se puede borrar/renombrar el .exe mientras este mismo proceso
+        # lo tiene abierto (Windows lo bloquea). La solución es lanzar un
+        # script auxiliar (un .bat temporal, sin ventana visible) que:
+        # 1) espera a que ESTE proceso termine (por PID),
+        # 2) borra el .exe viejo,
+        # 3) renombra el nuevo para que ocupe el nombre de siempre,
+        # 4) lo abre,
+        # 5) se autoborra. Así al final queda un solo archivo, con el mismo
+        # nombre de siempre (re4mp_updater.exe), no dos.
+        batch_path = os.path.join(tempfile.gettempdir(), "re4mp_updater_swap.bat")
+        batch_content = (
+            "@echo off\r\n"
+            "setlocal\r\n"
+            "set \"OLD_EXE=%~1\"\r\n"
+            "set \"NEW_EXE=%~2\"\r\n"
+            "set \"PID=%~3\"\r\n"
+            ":waitloop\r\n"
+            "tasklist /FI \"PID eq %PID%\" | find \"%PID%\" >nul\r\n"
+            "if not errorlevel 1 (\r\n"
+            "    timeout /t 1 /nobreak >nul\r\n"
+            "    goto waitloop\r\n"
+            ")\r\n"
+            "del /f /q \"%OLD_EXE%\"\r\n"
+            "move /y \"%NEW_EXE%\" \"%OLD_EXE%\"\r\n"
+            "start \"\" \"%OLD_EXE%\"\r\n"
+            "del \"%~f0\"\r\n"
+        )
+        try:
+            with open(batch_path, "w") as f:
+                f.write(batch_content)
+            subprocess.Popen(
+                ["cmd", "/c", batch_path, current_exe, self.new_updater_path, str(os.getpid())],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception:
+            self.lbl_updater_status.configure(text="No se pudo iniciar la actualización.", text_color=COLOR_ERROR)
+            return
+
         self.destroy()
 
 
