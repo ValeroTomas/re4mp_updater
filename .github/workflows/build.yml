@@ -76,7 +76,9 @@ jobs:
       - name: Generar _config.py
         if: steps.diff.outputs.changed == 'true'
         shell: bash
-        run: echo "CLIENT_API_KEY = \"${{ secrets.CLIENT_API_KEY }}\"" > _config.py
+        run: |
+          echo "CLIENT_API_KEY = \"${{ secrets.CLIENT_API_KEY }}\"" > _config.py
+          echo "REPO_URL = \"${{ secrets.REPO_URL }}\"" >> _config.py
 
       # --hidden-import=customtkinter: launcher.py no importa customtkinter
       # directo (lo carga en runtime desde updater_app.py descargado), así

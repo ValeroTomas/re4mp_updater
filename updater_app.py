@@ -36,11 +36,17 @@ try:
 except NameError:
     APP_PY_PATH = os.path.abspath(__file__)
 try:
+    APP_OLD_PY_PATH
+except NameError:
+    APP_OLD_PY_PATH = os.path.abspath(__file__) + ".old"
+try:
     LAUNCHER_PATH
 except NameError:
     LAUNCHER_PATH = os.path.abspath(__file__)
-
-REPO_URL = "https://gitlab.com/tomasvalero998/re4mp"
+try:
+    REPO_URL
+except NameError:
+    REPO_URL = os.environ.get("REPO_URL", "")
 
 # El pipeline reemplaza este placeholder por el commit corto al publicar
 # (sed sobre este archivo, no hace falta compilar nada).
@@ -132,6 +138,107 @@ def font(size, bold=False):
     return ctk.CTkFont(family="Segoe UI", size=int(round(size)), weight="bold" if bold else "normal")
 
 
+# ==========================================
+# VENTANA NATIVA SIN MARCO (Win32)
+# ==========================================
+# overrideredirect(True) por sí solo deja la ventana como un WS_POPUP sin
+# "owner" a nivel de Windows, y eso hace que no aparezca en la barra de
+# tareas, no tome foco al abrir, y a veces se abra detrás de otras
+# ventanas. Estas funciones parchean los estilos Win32 reales para que se
+# siga comportando como una ventana nativa normal pese a no tener marco.
+IS_WINDOWS = sys.platform == "win32"
+
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    _user32 = ctypes.windll.user32
+
+    _GWL_STYLE = -16
+    _GWL_EXSTYLE = -20
+    _WS_CAPTION = 0x00C00000
+    _WS_THICKFRAME = 0x00040000
+    _WS_POPUP = 0x80000000
+    _WS_EX_APPWINDOW = 0x00040000
+    _WS_EX_TOOLWINDOW = 0x00000080
+    _SWP_NOSIZE = 0x0001
+    _SWP_NOMOVE = 0x0002
+    _SWP_NOZORDER = 0x0004
+    _SWP_FRAMECHANGED = 0x0020
+    _SW_HIDE = 0
+    _SW_SHOW = 5
+    _SW_SHOWNORMAL = 1
+
+    # Firmas explícitas: sin esto, ctypes trata los HWND (punteros de 64
+    # bits) como c_int (32 bits) por default, lo que trunca el handle en
+    # Windows de 64 bits y produce fallos silenciosos e intermitentes.
+    _user32.GetParent.restype = wintypes.HWND
+    _user32.GetParent.argtypes = [wintypes.HWND]
+    _user32.GetWindowLongPtrW.restype = ctypes.c_longlong
+    _user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+    _user32.SetWindowLongPtrW.restype = ctypes.c_longlong
+    _user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_longlong]
+    _user32.SetWindowPos.restype = wintypes.BOOL
+    _user32.SetWindowPos.argtypes = [
+        wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, ctypes.c_uint,
+    ]
+    _user32.ShowWindow.restype = wintypes.BOOL
+    _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    _user32.SetForegroundWindow.restype = wintypes.BOOL
+    _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+
+
+def _win_top_level_hwnd(root) -> int:
+    # Tk expone un HWND "de dibujo" interno vía winfo_id(); el HWND real
+    # del top-level que administra Windows es el padre de ese.
+    root.update_idletasks()
+    child = wintypes.HWND(root.winfo_id())
+    parent = _user32.GetParent(child)
+    return parent if parent else child.value
+
+
+def apply_borderless_native_window(root):
+    if not IS_WINDOWS:
+        return
+    root.update_idletasks()
+    hwnd = _win_top_level_hwnd(root)
+
+    _user32.ShowWindow(hwnd, _SW_HIDE)
+
+    style = _user32.GetWindowLongPtrW(hwnd, _GWL_STYLE)
+    style &= ~(_WS_CAPTION | _WS_THICKFRAME)
+    style |= _WS_POPUP
+    _user32.SetWindowLongPtrW(hwnd, _GWL_STYLE, style)
+
+    # Lo que realmente trae de vuelta el ícono en la barra de tareas.
+    ex_style = _user32.GetWindowLongPtrW(hwnd, _GWL_EXSTYLE)
+    ex_style &= ~_WS_EX_TOOLWINDOW
+    ex_style |= _WS_EX_APPWINDOW
+    _user32.SetWindowLongPtrW(hwnd, _GWL_EXSTYLE, ex_style)
+
+    _user32.SetWindowPos(
+        hwnd, None, 0, 0, 0, 0,
+        _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER | _SWP_FRAMECHANGED,
+    )
+
+    _user32.ShowWindow(hwnd, _SW_SHOW)
+    win_bring_to_front(root)
+
+
+def win_bring_to_front(root):
+    if not IS_WINDOWS:
+        root.lift()
+        root.focus_force()
+        return
+    root.update_idletasks()
+    hwnd = _win_top_level_hwnd(root)
+    _user32.ShowWindow(hwnd, _SW_SHOWNORMAL)
+    _user32.SetForegroundWindow(hwnd)
+    root.lift()
+    root.focus_force()
+
+
 class RE4ModUpdater(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -140,6 +247,7 @@ class RE4ModUpdater(ctk.CTk):
         self.geometry("440x680")
         self.minsize(400, 580)
         self.resizable(True, True)
+        self.overrideredirect(True)
 
         self.branches_data = {}
         self.new_app_content = None
@@ -149,6 +257,7 @@ class RE4ModUpdater(ctk.CTk):
         self.folder_ok = self._validate_game_folder()
 
         self._build_card()
+        apply_borderless_native_window(self)
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         if self.folder_ok:
@@ -187,6 +296,15 @@ class RE4ModUpdater(ctk.CTk):
         self._build_view_offline()
         self._build_view_empty()
 
+    def _start_drag(self, event):
+        self._drag_offset_x = event.x_root - self.winfo_x()
+        self._drag_offset_y = event.y_root - self.winfo_y()
+
+    def _do_drag(self, event):
+        x = event.x_root - self._drag_offset_x
+        y = event.y_root - self._drag_offset_y
+        self.geometry(f"+{x}+{y}")
+
     def _build_header(self):
         row = ctk.CTkFrame(self.card, fg_color="transparent")
         row.pack(fill="x", padx=20, pady=(20, 16))
@@ -210,6 +328,19 @@ class RE4ModUpdater(ctk.CTk):
         title_lbl.pack(anchor="w")
         subtitle_lbl = ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED)
         subtitle_lbl.pack(anchor="w")
+
+        # Toda la fila del header sirve para arrastrar la ventana (como si
+        # fuera la barra de título nativa), salvo el botón de cerrar.
+        for w in (row, badge, badge_lbl, title_col, title_lbl, subtitle_lbl):
+            w.bind("<ButtonPress-1>", self._start_drag)
+            w.bind("<B1-Motion>", self._do_drag)
+
+        close_btn = ctk.CTkButton(
+            row, text="✕", width=26, height=26, corner_radius=13,
+            fg_color="transparent", hover_color=COLOR_ERROR_BG, text_color=COLOR_MUTED,
+            font=font(12, bold=True), command=self.destroy,
+        )
+        close_btn.pack(side="right", padx=(8, 0))
 
         status_col = ctk.CTkFrame(row, fg_color="transparent")
         status_col.pack(side="right")
@@ -615,6 +746,18 @@ class RE4ModUpdater(ctk.CTk):
         if not self.new_app_content:
             return
         try:
+            # Respaldo antes de sobreescribir: esta versión actual llegó a
+            # correr lo suficiente como para descargar y aplicar un update,
+            # así que es un candidato razonable de "última versión que
+            # anduvo bien" si la nueva resulta estar rota. El launcher cae
+            # acá automáticamente si la nueva falla al arrancar 3 veces
+            # seguidas.
+            if os.path.exists(APP_PY_PATH):
+                with open(APP_PY_PATH, "rb") as f:
+                    current_content = f.read()
+                with open(APP_OLD_PY_PATH, "wb") as f:
+                    f.write(current_content)
+
             # Sobreescribir el .py en disco no genera ningún conflicto: este
             # proceso ya lo tiene compilado en memoria (bytecode), nada lo
             # sigue leyendo del archivo — a diferencia de un .exe en
