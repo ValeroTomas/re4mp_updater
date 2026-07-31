@@ -78,8 +78,9 @@ class RE4ModUpdater(ctk.CTk):
         ctk.set_appearance_mode("Dark")
 
         self.title("RE4MP - Mod Updater")
-        self.geometry("400x560")
-        self.resizable(False, False)
+        self.geometry("400x640")
+        self.minsize(380, 560)
+        self.resizable(True, True)
 
         self.branches_data = {}
         self.new_updater_path = None
