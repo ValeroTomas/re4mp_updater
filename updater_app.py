@@ -54,6 +54,12 @@ except NameError:
 UPDATER_APP_VERSION = "__UPDATER_APP_VERSION__"
 
 HEADERS = {"X-Api-Key": CLIENT_API_KEY}
+# Una Session reusada en vez de requests.get suelto en cada llamada: así las
+# conexiones quedan "calientes" (keep-alive) entre requests al Worker, en
+# vez de rearmar TCP+TLS desde cero cada vez — la app hace bastantes
+# llamadas separadas a lo largo de su vida (chequeos, refresh, descargas).
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
 GAME_EXE_NAME = "bio4.exe"
 DLL_NAME = "dinput8.dll"
 RELAUNCHER_EXE_NAME = "re4mp_relauncher.exe"
@@ -649,7 +655,7 @@ class RE4ModUpdater(ctk.CTk):
 
     def fetch_branches(self, retry_on_failure=True):
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/builds", headers=HEADERS, timeout=10)
+            response = SESSION.get(f"{WORKER_BASE_URL}/builds", timeout=10)
             if response.status_code == 200:
                 data = response.json().get("builds", [])
                 self.branches_data = {}
@@ -795,7 +801,7 @@ class RE4ModUpdater(ctk.CTk):
         temp_path = os.path.join(game_dir(), f"{DLL_NAME}.tmp")
 
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/download/{slug}", headers=HEADERS, stream=True, timeout=15)
+            response = SESSION.get(f"{WORKER_BASE_URL}/download/{slug}", stream=True, timeout=15)
             if response.status_code == 200:
                 with open(temp_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=1048576):
@@ -846,7 +852,7 @@ class RE4ModUpdater(ctk.CTk):
         if os.path.exists(relauncher_path):
             return
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/updater/relauncher/download", headers=HEADERS, timeout=15)
+            response = SESSION.get(f"{WORKER_BASE_URL}/updater/relauncher/download", timeout=15)
             if response.status_code == 200:
                 with open(relauncher_path, "wb") as f:
                     f.write(response.content)
@@ -863,7 +869,7 @@ class RE4ModUpdater(ctk.CTk):
 
     def check_updater_version(self):
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/updater/app/latest", headers=HEADERS, timeout=10)
+            response = SESSION.get(f"{WORKER_BASE_URL}/updater/app/latest", timeout=10)
             if response.status_code != 200:
                 self.after(0, self._show_updater_check_error, f"No se pudo verificar (código {response.status_code}).")
                 return
@@ -896,7 +902,7 @@ class RE4ModUpdater(ctk.CTk):
 
     def _download_new_updater(self):
         try:
-            response = requests.get(f"{WORKER_BASE_URL}/updater/app/download", headers=HEADERS, stream=True, timeout=20)
+            response = SESSION.get(f"{WORKER_BASE_URL}/updater/app/download", stream=True, timeout=20)
             if response.status_code == 200:
                 total = int(response.headers.get("content-length", 0))
                 downloaded = 0
