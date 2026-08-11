@@ -513,6 +513,13 @@ class RE4ModUpdater(ctk.CTk):
         )
         self.lbl_updater_status.pack(anchor="w", pady=(2, 0))
 
+        # --- DIAGNÓSTICO TEMPORAL, sacar una vez confirmado el fix de _MEIPASS2 ---
+        meipass2_status = "presente ⚠️" if os.environ.get("_MEIPASS2") else "no está ✅"
+        ctk.CTkLabel(
+            left, text=f"[debug] _MEIPASS2: {meipass2_status}", font=font(9), text_color=COLOR_MUTED_2,
+        ).pack(anchor="w")
+        # --- fin diagnóstico temporal ---
+
         self.btn_check_updater = ctk.CTkButton(
             row, text="Buscar actualización", height=30, corner_radius=7,
             fg_color="transparent", hover_color=COLOR_ACCENT_SOFT_BG, border_color=COLOR_BORDER_BTN, border_width=1,
