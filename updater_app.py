@@ -301,21 +301,19 @@ class RE4ModUpdater(ctk.CTk):
         self.selected_label = None
         self.selected_slug = None
         self.branch_row_widgets = {}
-        self._is_minimized = False
+        self._destroyed = False
         self._is_fading = False
         self.folder_ok = self._validate_game_folder()
 
         self._build_card()
         apply_borderless_native_window(self)
         apply_rounded_corners(self)
-        # Al minimizar/restaurar manejamos el HWND directo (ver minimize()),
-        # por fuera del tracking normal de estado que hace Tk para ventanas
-        # con marco. <Map> se dispara cuando la ventana vuelve a mostrarse
-        # (incluida la restauración desde la barra de tareas); ahí
-        # disparamos el fade-in y forzamos un redraw por si el layout
-        # interno quedó desincronizado.
-        self.bind("<Unmap>", self._on_unmap)
-        self.bind("<Map>", self._on_map)
+        # <Map>/<Unmap> de Tk no son confiables para detectar minimizado o
+        # restaurado en una ventana WS_POPUP sin marco (no se disparan de
+        # forma consistente en este contexto). En vez de depender de esos
+        # eventos, consultamos el estado real de Windows por polling.
+        self._was_iconic = False
+        self._poll_iconic_state()
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         if self.folder_ok:
@@ -364,6 +362,10 @@ class RE4ModUpdater(ctk.CTk):
         y = event.y_root - self._drag_offset_y
         self.geometry(f"+{x}+{y}")
 
+    def destroy(self):
+        self._destroyed = True
+        super().destroy()
+
     def minimize(self):
         self._fade_out(callback=self._do_native_minimize)
 
@@ -373,31 +375,28 @@ class RE4ModUpdater(ctk.CTk):
             _user32.ShowWindow(hwnd, _SW_MINIMIZE)
         else:
             self.iconify()
-        # <Unmap> se encarga de marcar _is_minimized (ver _on_unmap) — así
-        # funciona sin importar si el minimizado se disparó desde nuestro
-        # botón, la barra de tareas, o el menú de sistema (click derecho).
+        # El watcher (_poll_iconic_state) es quien detecta la transición y
+        # dispara el fade-in al restaurar — funciona sin importar si el
+        # minimizado se disparó desde nuestro botón, la barra de tareas, o
+        # el menú de sistema, porque no depende de ningún evento de Tk.
 
-    def _on_unmap(self, event=None):
-        # <Unmap> también puede dispararse por reconstrucciones internas de
-        # widgets, no solo por un minimizado real — por eso se confirma
-        # contra el estado real de Windows (IsIconic) antes de actuar. Sin
-        # este chequeo, cualquier Unmap espurio dejaría la ventana entera
-        # en alpha 0 (invisible) sin haberse minimizado de verdad.
-        if IS_WINDOWS:
+    def _poll_iconic_state(self):
+        if IS_WINDOWS and not self._destroyed:
             hwnd = _win_top_level_hwnd(self)
-            if not _user32.IsIconic(hwnd):
-                return
-        self._is_minimized = True
-        self.attributes("-alpha", 0.0)
-
-    def _on_map(self, event=None):
-        # Misma lógica de guarda que _on_unmap, en el sentido inverso: solo
-        # animar si veníamos de un minimizado real confirmado.
-        if not self._is_minimized:
-            return
-        self._is_minimized = False
-        self.update_idletasks()
-        self._fade_in()
+            is_iconic = bool(_user32.IsIconic(hwnd))
+            if is_iconic and not self._was_iconic:
+                # Se acaba de minimizar (por cualquier vía). Si vino de
+                # nuestro botón ya está en alpha 0 por el fade-out; si vino
+                # de afuera (taskbar/menú de sistema) no hubo fade previo,
+                # así que forzamos alpha 0 acá para no dejar nada visible
+                # "colgado" detrás.
+                self.attributes("-alpha", 0.0)
+            elif not is_iconic and self._was_iconic:
+                # Se acaba de restaurar.
+                self._fade_in()
+            self._was_iconic = is_iconic
+        if not self._destroyed:
+            self.after(250, self._poll_iconic_state)
 
     def _fade_out(self, callback, steps=8, delay=15):
         if self._is_fading:
