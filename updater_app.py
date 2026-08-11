@@ -924,10 +924,22 @@ class RE4ModUpdater(ctk.CTk):
             return
 
         try:
+            # _MEIPASS2 es una variable interna que el bootloader de
+            # PyInstaller usa para saber dónde extrajo sus archivos. Si no
+            # la sacamos del entorno antes de relanzarnos a nosotros mismos,
+            # el proceso nuevo la hereda y puede terminar creyendo que ya
+            # tiene todo extraído en la carpeta temporal del proceso VIEJO
+            # (que además se libera cuando ese proceso termina) — eso rompe
+            # que requests encuentre el certificado SSL empaquetado
+            # (certifi), y todas las conexiones HTTPS fallan en silencio
+            # durante toda la vida de ese proceso nuevo, sin importar
+            # cuántas veces se reintente desde adentro.
+            env = os.environ.copy()
+            env.pop("_MEIPASS2", None)
             if getattr(sys, "frozen", False):
-                subprocess.Popen([LAUNCHER_PATH])
+                subprocess.Popen([LAUNCHER_PATH], env=env)
             else:
-                subprocess.Popen([sys.executable, LAUNCHER_PATH])
+                subprocess.Popen([sys.executable, LAUNCHER_PATH], env=env)
         except Exception:
             self.lbl_updater_status.configure(text="No se pudo reiniciar. Abrí el updater de nuevo a mano.", text_color=COLOR_ERROR)
             return
