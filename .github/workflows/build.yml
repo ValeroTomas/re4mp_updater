@@ -19,21 +19,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detectar si cambió el launcher
+      - name: Detectar qué cambió
         id: diff
         shell: bash
         run: |
           # github.event.before es todo ceros en el primer push a la rama
           # (o si el historial no está disponible); en ese caso, compilamos
-          # igual para asegurarnos de que exista un launcher.exe publicado.
+          # todo igual para asegurarnos de que exista un build publicado.
           if [[ "${{ github.event.before }}" =~ ^0+$ ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "launcher_changed=true" >> "$GITHUB_OUTPUT"
+            echo "relauncher_changed=true" >> "$GITHUB_OUTPUT"
           else
             changed_files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
             if echo "$changed_files" | grep -qE '^(launcher\.py|requirements\.txt)$'; then
-              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "launcher_changed=true" >> "$GITHUB_OUTPUT"
             else
-              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "launcher_changed=false" >> "$GITHUB_OUTPUT"
+            fi
+            if echo "$changed_files" | grep -qE '^relauncher\.py$'; then
+              echo "relauncher_changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "relauncher_changed=false" >> "$GITHUB_OUTPUT"
             fi
           fi
 
@@ -64,17 +70,17 @@ jobs:
 
       # --- launcher.exe: solo si cambió launcher.py o requirements.txt ---
       - name: Setup Python
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.diff.outputs.launcher_changed == 'true' || steps.diff.outputs.relauncher_changed == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Instalar dependencias
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.diff.outputs.launcher_changed == 'true' || steps.diff.outputs.relauncher_changed == 'true'
         run: pip install -r requirements.txt
 
       - name: Generar _config.py
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.diff.outputs.launcher_changed == 'true'
         shell: bash
         run: |
           echo "CLIENT_API_KEY = \"${{ secrets.CLIENT_API_KEY }}\"" > _config.py
@@ -85,11 +91,11 @@ jobs:
       # que PyInstaller no lo detecta solo por análisis estático. Sin este
       # flag, el .exe compila bien pero explota al ejecutar la app real.
       - name: Compilar launcher con PyInstaller
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.diff.outputs.launcher_changed == 'true'
         run: pyinstaller --onefile --windowed --name re4mp_updater --collect-data=customtkinter --hidden-import=customtkinter launcher.py
 
       - name: Publicar launcher.exe en R2
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.diff.outputs.launcher_changed == 'true'
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -100,9 +106,35 @@ jobs:
             --endpoint-url "${{ secrets.R2_ENDPOINT }}" \
             --metadata "commit=${{ steps.meta.outputs.short_sha }},committedDate=${{ steps.meta.outputs.committed_date }}"
 
-      - name: Upload artifact (respaldo)
-        if: steps.diff.outputs.changed == 'true'
+      - name: Upload artifact launcher (respaldo)
+        if: steps.diff.outputs.launcher_changed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: re4mp_updater
           path: dist/re4mp_updater.exe
+
+      # --- relauncher.exe: solo si cambió relauncher.py. No necesita
+      # _config.py (no habla con el Worker ni tiene secrets propios, solo
+      # relanza un .exe que ya tiene la ruta pasada por argumento). ---
+      - name: Compilar relauncher con PyInstaller
+        if: steps.diff.outputs.relauncher_changed == 'true'
+        run: pyinstaller --onefile --noconsole --name re4mp_relauncher relauncher.py
+
+      - name: Publicar relauncher.exe en R2
+        if: steps.diff.outputs.relauncher_changed == 'true'
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          aws s3 cp "dist/re4mp_relauncher.exe" "s3://${R2_BUCKET}/${R2_PREFIX}/relauncher.exe" \
+            --endpoint-url "${{ secrets.R2_ENDPOINT }}" \
+            --metadata "commit=${{ steps.meta.outputs.short_sha }},committedDate=${{ steps.meta.outputs.committed_date }}"
+
+      - name: Upload artifact relauncher (respaldo)
+        if: steps.diff.outputs.relauncher_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: re4mp_relauncher
+          path: dist/re4mp_relauncher.exe

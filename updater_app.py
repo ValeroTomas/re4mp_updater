@@ -56,6 +56,7 @@ UPDATER_APP_VERSION = "__UPDATER_APP_VERSION__"
 HEADERS = {"X-Api-Key": CLIENT_API_KEY}
 GAME_EXE_NAME = "bio4.exe"
 DLL_NAME = "dinput8.dll"
+RELAUNCHER_EXE_NAME = "re4mp_relauncher.exe"
 
 # Paleta "ámbar de inventario", tal cual la definió Claude Design.
 COLOR_BG = "#0C0B08"
@@ -325,6 +326,7 @@ class RE4ModUpdater(ctk.CTk):
         self._poll_iconic_state()
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
+        threading.Thread(target=self._ensure_relauncher_installed, daemon=True).start()
         if self.folder_ok:
             self._show_view("normal")
             threading.Thread(target=self.fetch_branches, daemon=True).start()
@@ -839,6 +841,25 @@ class RE4ModUpdater(ctk.CTk):
         except Exception:
             pass
 
+    def _ensure_relauncher_installed(self):
+        # Se instala una sola vez, en segundo plano, sin avisos: no es algo
+        # que el usuario tenga que gestionar. Si falla (sin internet en
+        # este arranque puntual, etc.), no pasa nada — apply_updater_update
+        # tiene un respaldo para cuando todavía no está instalado, y este
+        # mismo chequeo se reintenta solo la próxima vez que abra la app.
+        if not getattr(sys, "frozen", False):
+            return
+        relauncher_path = os.path.join(APP_DIR, RELAUNCHER_EXE_NAME)
+        if os.path.exists(relauncher_path):
+            return
+        try:
+            response = requests.get(f"{WORKER_BASE_URL}/updater/relauncher/download", headers=HEADERS, timeout=15)
+            if response.status_code == 200:
+                with open(relauncher_path, "wb") as f:
+                    f.write(response.content)
+        except Exception:
+            pass
+
     # ---------------------------------------------------------
     # Self-update del propio updater
     # ---------------------------------------------------------
@@ -940,29 +961,29 @@ class RE4ModUpdater(ctk.CTk):
             return
 
         try:
-            # _MEIPASS2 es una variable interna que el bootloader de
-            # PyInstaller usa para saber dónde extrajo sus archivos —
-            # igual la sacamos por las dudas, aunque el problema real
-            # resultó ser más de fondo (ver abajo).
-            env = os.environ.copy()
-            env.pop("_MEIPASS2", None)
+            relauncher_path = os.path.join(APP_DIR, RELAUNCHER_EXE_NAME)
 
-            if getattr(sys, "frozen", False):
-                # No lanzamos LAUNCHER_PATH directo con Popen: eso lo deja
-                # como hijo directo de ESTE proceso, que es el mismo
-                # bootloader de PyInstaller a punto de cerrarse — y ahí
-                # compiten por handles/recursos del runtime empaquetado
-                # (de ahí el error "Failed to remove temporary directory"
-                # y las conexiones rotas pese a que _MEIPASS2 ya estaba
-                # limpio). Pasarlo por `cmd /c start` lo desacopla del
-                # todo: nace como hijo de cmd.exe, un proceso neutral que
-                # no tiene nada que ver con nuestro bootloader.
+            if getattr(sys, "frozen", False) and os.path.exists(relauncher_path):
+                # Vía principal: un binario genuinamente distinto del
+                # launcher se encarga de relanzarlo. Al no ser una copia de
+                # sí mismo, no comparte linaje/handles del bootloader de
+                # PyInstaller con el proceso que se está cerrando — evita
+                # de raíz toda la familia de problemas que veníamos
+                # arrastrando (temp dir, _MEIPASS2, conexiones rotas).
+                subprocess.Popen([relauncher_path, LAUNCHER_PATH, str(os.getpid())])
+            elif getattr(sys, "frozen", False):
+                # Respaldo: todavía no se instaló el relanzador (recién
+                # actualizaste desde una versión vieja y el chequeo en
+                # segundo plano no tuvo tiempo de bajarlo). No es ideal,
+                # pero no bloquea el reinicio.
+                env = os.environ.copy()
+                env.pop("_MEIPASS2", None)
                 subprocess.Popen(
                     ["cmd", "/c", "start", "", LAUNCHER_PATH],
                     env=env, creationflags=subprocess.CREATE_NO_WINDOW,
                 )
             else:
-                subprocess.Popen([sys.executable, LAUNCHER_PATH], env=env)
+                subprocess.Popen([sys.executable, LAUNCHER_PATH])
         except Exception:
             self.lbl_updater_status.configure(text="No se pudo reiniciar. Abrí el updater de nuevo a mano.", text_color=COLOR_ERROR)
             return
