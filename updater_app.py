@@ -932,26 +932,36 @@ class RE4ModUpdater(ctk.CTk):
 
         try:
             # _MEIPASS2 es una variable interna que el bootloader de
-            # PyInstaller usa para saber dónde extrajo sus archivos. Si no
-            # la sacamos del entorno antes de relanzarnos a nosotros mismos,
-            # el proceso nuevo la hereda y puede terminar creyendo que ya
-            # tiene todo extraído en la carpeta temporal del proceso VIEJO
-            # (que además se libera cuando ese proceso termina) — eso rompe
-            # que requests encuentre el certificado SSL empaquetado
-            # (certifi), y todas las conexiones HTTPS fallan en silencio
-            # durante toda la vida de ese proceso nuevo, sin importar
-            # cuántas veces se reintente desde adentro.
+            # PyInstaller usa para saber dónde extrajo sus archivos —
+            # igual la sacamos por las dudas, aunque el problema real
+            # resultó ser más de fondo (ver abajo).
             env = os.environ.copy()
             env.pop("_MEIPASS2", None)
+
             if getattr(sys, "frozen", False):
-                subprocess.Popen([LAUNCHER_PATH], env=env)
+                # No lanzamos LAUNCHER_PATH directo con Popen: eso lo deja
+                # como hijo directo de ESTE proceso, que es el mismo
+                # bootloader de PyInstaller a punto de cerrarse — y ahí
+                # compiten por handles/recursos del runtime empaquetado
+                # (de ahí el error "Failed to remove temporary directory"
+                # y las conexiones rotas pese a que _MEIPASS2 ya estaba
+                # limpio). Pasarlo por `cmd /c start` lo desacopla del
+                # todo: nace como hijo de cmd.exe, un proceso neutral que
+                # no tiene nada que ver con nuestro bootloader.
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", LAUNCHER_PATH],
+                    env=env, creationflags=subprocess.CREATE_NO_WINDOW,
+                )
             else:
                 subprocess.Popen([sys.executable, LAUNCHER_PATH], env=env)
         except Exception:
             self.lbl_updater_status.configure(text="No se pudo reiniciar. Abrí el updater de nuevo a mano.", text_color=COLOR_ERROR)
             return
 
-        self.destroy()
+        # Pequeño margen antes de cerrarnos: nos aseguramos de que el
+        # comando `start` ya haya quedado registrado en el sistema antes
+        # de que este proceso empiece a desaparecer.
+        self.after(200, self.destroy)
 
 
 # ---------------------------------------------------------
