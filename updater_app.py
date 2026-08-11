@@ -111,7 +111,16 @@ def format_relative(iso_date: str) -> str:
     if not iso_date:
         return "--"
     try:
-        dt = datetime.strptime(iso_date[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        # fromisoformat entiende el offset real de la fecha (+HH:MM,
+        # -HH:MM, o 'Z'), a diferencia de truncar a los primeros 19
+        # caracteres y forzar UTC a ciegas (lo que había antes): la fecha
+        # que genera el pipeline (git %cI) viene con el offset local de
+        # quien commiteó, no en UTC — truncarla y asumir UTC corría todo
+        # el cálculo exactamente por ese offset (3 horas de más para
+        # alguien en GMT-3, por ejemplo).
+        dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
     except ValueError:
         return iso_date
 
