@@ -482,15 +482,19 @@ class RE4ModUpdater(ctk.CTk):
             self._show_view("folder_error")
 
     def switch_language(self, lang):
-        global CURRENT_LANGUAGE
         if lang == CURRENT_LANGUAGE:
             return
+        # Reusa el mismo fade de minimizar/restaurar en vez de cortar seco
+        # a la tarjeta nueva: se ve bastante menos brusco.
+        self._fade_out(callback=lambda: self._apply_language_switch(lang))
+
+    def _apply_language_switch(self, lang):
+        global CURRENT_LANGUAGE
         CURRENT_LANGUAGE = lang
         save_settings({"language": lang})
         # Reconstruye toda la tarjeta con los textos del idioma nuevo, en
         # vez de andar actualizando widget por widget — mucho más simple
-        # de mantener correcto en cualquier estado, a costa de un
-        # parpadeo breve (cambiar de idioma es una acción rara).
+        # de mantener correcto en cualquier estado.
         self.selected_label = None
         self.selected_slug = None
         self.branches_data = {}
@@ -498,6 +502,7 @@ class RE4ModUpdater(ctk.CTk):
         self._build_card()
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         self._start_app_flow()
+        self._fade_in()
 
     # ---------------------------------------------------------
     # Validaciones
@@ -521,14 +526,42 @@ class RE4ModUpdater(ctk.CTk):
         self._build_titlebar()
         self._build_header()
         self._build_updater_section()
+        self._build_footer()
 
         self.content_container = ctk.CTkFrame(self.card, fg_color="transparent")
-        self.content_container.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        self.content_container.pack(fill="both", expand=True, padx=20, pady=(0, 8))
 
         self._build_view_normal()
         self._build_view_folder_error()
         self._build_view_offline()
         self._build_view_empty()
+
+    def _build_footer(self):
+        footer = ctk.CTkFrame(self.card, fg_color="transparent")
+        # side="bottom", empaquetado ANTES que content_container: así
+        # reserva su espacio natural abajo del todo, y content_container
+        # (que sí se expande) llena lo que queda arriba. Si se empaquetara
+        # después, content_container ya se habría comido todo el espacio
+        # disponible y el footer quedaría apretado a cero altura.
+        footer.pack(side="bottom", fill="x", padx=20, pady=(0, 12))
+
+        lang_display = {"en": "English", "es": "Español"}
+        display_to_code = {v: k for k, v in lang_display.items()}
+
+        self.lang_menu = ctk.CTkOptionMenu(
+            footer, values=list(lang_display.values()), width=112, height=24, corner_radius=6,
+            fg_color=COLOR_INNER, button_color=COLOR_PANEL_BORDER, button_hover_color=COLOR_ACCENT_SOFT_BG,
+            text_color=COLOR_MUTED, font=font(11), dropdown_font=font(11),
+            dropdown_fg_color=COLOR_INNER, dropdown_hover_color=COLOR_ACCENT_SOFT_BG, dropdown_text_color=COLOR_MUTED,
+            command=lambda choice: self.switch_language(display_to_code[choice]),
+        )
+        self.lang_menu.set(lang_display.get(CURRENT_LANGUAGE, "English"))
+        self.lang_menu.pack(side="right")
+
+        # "Language" queda fijo en inglés a propósito (no pasa por t()): es
+        # el selector de idioma en sí, y así se puede identificar aunque la
+        # app esté puesta en un idioma que todavía no reconocés.
+        ctk.CTkLabel(footer, text="Language:", font=font(11), text_color=COLOR_MUTED).pack(side="right", padx=(0, 6))
 
     def _start_drag(self, event):
         self._drag_offset_x = event.x_root - self.winfo_x()
@@ -668,14 +701,6 @@ class RE4ModUpdater(ctk.CTk):
         self.status_dot.pack(side="left")
         self.lbl_online_status = ctk.CTkLabel(status_col, text=t("status_connecting"), font=font(12), text_color=COLOR_MUTED)
         self.lbl_online_status.pack(side="left", padx=(4, 0))
-
-        lang_btn = ctk.CTkButton(
-            row, text="ES" if CURRENT_LANGUAGE == "en" else "EN", width=30, height=22, corner_radius=6,
-            fg_color="transparent", hover_color=COLOR_ACCENT_SOFT_BG, border_color=COLOR_BORDER_BTN, border_width=1,
-            text_color=COLOR_MUTED, font=font(10, bold=True),
-            command=lambda: self.switch_language("es" if CURRENT_LANGUAGE == "en" else "en"),
-        )
-        lang_btn.pack(side="right", padx=(0, 10))
 
     def _set_online_status(self, online: bool):
         color = COLOR_ONLINE if online else COLOR_OFFLINE
