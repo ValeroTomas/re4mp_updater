@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import json
 import webbrowser
 import hashlib
 from datetime import datetime, timezone
@@ -63,6 +64,141 @@ SESSION.headers.update(HEADERS)
 GAME_EXE_NAME = "bio4.exe"
 DLL_NAME = "dinput8.dll"
 RELAUNCHER_EXE_NAME = "re4mp_relauncher.exe"
+
+# ==========================================
+# IDIOMA
+# ==========================================
+SETTINGS_PATH = os.path.join(APP_DIR, "settings.json")
+
+
+def load_settings() -> dict:
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_settings(settings: dict):
+    try:
+        os.makedirs(APP_DIR, exist_ok=True)
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(settings, f)
+    except Exception:
+        pass  # preferencia no crítica: si no se pudo guardar, se pierde
+
+
+_settings = load_settings()
+CURRENT_LANGUAGE = _settings.get("language", "en")  # inglés por defecto
+
+TRANSLATIONS = {
+    "en": {
+        "app_subtitle": "Mod Updater",
+        "status_connecting": "Connecting...",
+        "status_online": "Online",
+        "status_offline": "Offline",
+        "updater_section_label": "Updater",
+        "updater_up_to_date": "{version} · Up to date",
+        "updater_checking": "Checking for updates...",
+        "updater_available": "New version available ({commit})",
+        "updater_downloading": "Downloading update...",
+        "updater_ready_restart": "Update ready to install.",
+        "updater_check_error": "Couldn't check (code {code}).",
+        "updater_conn_error": "Connection error while checking.",
+        "updater_download_error": "Couldn't download the update.",
+        "updater_download_error_generic": "Error downloading the update.",
+        "updater_save_error": "Couldn't save the update.",
+        "updater_restart_error": "Couldn't restart. Open the updater again manually.",
+        "btn_check_update": "Check for update",
+        "btn_download_update": "Download update",
+        "btn_downloading": "Downloading...",
+        "btn_restart_now": "Restart now",
+        "folder_error_title": "We couldn't find Resident Evil 4",
+        "folder_error_body": "Move this app to the same folder as {game_exe} and open it again.",
+        "folder_error_btn": "View instructions",
+        "offline_title": "No connection",
+        "offline_body": "Check your internet and try again.",
+        "retry_btn": "Retry",
+        "empty_title": "No versions published yet",
+        "empty_body": "Try again later.",
+        "branch_section_title": "Choose mod branch",
+        "search_placeholder": "🔍 Search branch...",
+        "no_results": "No results",
+        "branch_updated_prefix": "Updated {date}",
+        "btn_download": "Download",
+        "status_downloading_server": "Downloading from server...",
+        "status_already_installed": "You already have this version installed.",
+        "status_file_not_found": "File not found (code {code}).",
+        "status_permission_denied": "Permission denied. Close the game and try again.",
+        "status_unexpected_error": "An unexpected error occurred while downloading.",
+        "status_success": "Done! {dll} was updated.",
+        "install_success_title": "Installed successfully!",
+        "play_now_btn": "🎮 Play now",
+        "single_instance_msg": "The updater is already open.",
+        "relative_now": "just now",
+        "relative_min": "{n} min ago",
+        "relative_hour": ("{n} hour ago", "{n} hours ago"),
+        "relative_day": ("{n} day ago", "{n} days ago"),
+        "relative_month": ("{n} month ago", "{n} months ago"),
+        "relative_year": ("{n} year ago", "{n} years ago"),
+    },
+    "es": {
+        "app_subtitle": "Mod Updater",
+        "status_connecting": "Conectando...",
+        "status_online": "En línea",
+        "status_offline": "Sin conexión",
+        "updater_section_label": "Actualización del updater",
+        "updater_up_to_date": "{version} · Estás al día",
+        "updater_checking": "Buscando actualización...",
+        "updater_available": "Nueva versión disponible ({commit})",
+        "updater_downloading": "Descargando actualización...",
+        "updater_ready_restart": "Actualización lista para instalar.",
+        "updater_check_error": "No se pudo verificar (código {code}).",
+        "updater_conn_error": "Error de conexión al verificar.",
+        "updater_download_error": "No se pudo descargar la actualización.",
+        "updater_download_error_generic": "Error al descargar la actualización.",
+        "updater_save_error": "No se pudo guardar la actualización.",
+        "updater_restart_error": "No se pudo reiniciar. Abrí el updater de nuevo a mano.",
+        "btn_check_update": "Buscar actualización",
+        "btn_download_update": "Descargar actualización",
+        "btn_downloading": "Descargando...",
+        "btn_restart_now": "Reiniciar ahora",
+        "folder_error_title": "No encontramos Resident Evil 4",
+        "folder_error_body": "Movés esta app a la misma carpeta que {game_exe} y la abrís de nuevo.",
+        "folder_error_btn": "Ver instrucciones",
+        "offline_title": "Sin conexión",
+        "offline_body": "Revisá tu internet e intentá de nuevo.",
+        "retry_btn": "Reintentar",
+        "empty_title": "Todavía no hay versiones publicadas",
+        "empty_body": "Volvé a intentar más tarde.",
+        "branch_section_title": "Elegir rama del mod",
+        "search_placeholder": "🔍 Buscar rama...",
+        "no_results": "Sin resultados",
+        "branch_updated_prefix": "Actualizado {date}",
+        "btn_download": "Descargar",
+        "status_downloading_server": "Descargando desde el servidor...",
+        "status_already_installed": "Ya tenés instalada esta versión.",
+        "status_file_not_found": "El archivo no existe (código {code}).",
+        "status_permission_denied": "Permiso denegado. Cerrá el juego e intentá de nuevo.",
+        "status_unexpected_error": "Ocurrió un error inesperado al descargar.",
+        "status_success": "¡Listo! {dll} fue actualizado.",
+        "install_success_title": "¡Instalado correctamente!",
+        "play_now_btn": "🎮 Jugar ahora",
+        "single_instance_msg": "Ya hay una instancia del updater abierta.",
+        "relative_now": "hace instantes",
+        "relative_min": "hace {n} min",
+        "relative_hour": ("hace {n} hora", "hace {n} horas"),
+        "relative_day": ("hace {n} día", "hace {n} días"),
+        "relative_month": ("hace {n} mes", "hace {n} meses"),
+        "relative_year": ("hace {n} año", "hace {n} años"),
+    },
+}
+
+
+def t(key, **kwargs) -> str:
+    table = TRANSLATIONS.get(CURRENT_LANGUAGE, TRANSLATIONS["en"])
+    template = table.get(key, TRANSLATIONS["en"].get(key, key))
+    return template.format(**kwargs) if kwargs else template
 
 # Paleta "ámbar de inventario", tal cual la definió Claude Design.
 COLOR_BG = "#0C0B08"
@@ -134,21 +270,24 @@ def format_relative(iso_date: str) -> str:
     delta = datetime.now(timezone.utc) - dt
     seconds = delta.total_seconds()
     if seconds < 60:
-        return "hace instantes"
+        return t("relative_now")
     if seconds < 3600:
-        mins = int(seconds // 60)
-        return f"hace {mins} min"
+        return t("relative_min", n=int(seconds // 60))
     if seconds < 86400:
         hours = int(seconds // 3600)
-        return f"hace {hours} hora{'s' if hours != 1 else ''}"
+        singular, plural = TRANSLATIONS.get(CURRENT_LANGUAGE, TRANSLATIONS["en"])["relative_hour"]
+        return (singular if hours == 1 else plural).format(n=hours)
     days = int(seconds // 86400)
     if days < 30:
-        return f"hace {days} día{'s' if days != 1 else ''}"
+        singular, plural = TRANSLATIONS.get(CURRENT_LANGUAGE, TRANSLATIONS["en"])["relative_day"]
+        return (singular if days == 1 else plural).format(n=days)
     if days < 365:
         months = days // 30
-        return f"hace {months} mes{'es' if months != 1 else ''}"
+        singular, plural = TRANSLATIONS.get(CURRENT_LANGUAGE, TRANSLATIONS["en"])["relative_month"]
+        return (singular if months == 1 else plural).format(n=months)
     years = days // 365
-    return f"hace {years} año{'s' if years != 1 else ''}"
+    singular, plural = TRANSLATIONS.get(CURRENT_LANGUAGE, TRANSLATIONS["en"])["relative_year"]
+    return (singular if years == 1 else plural).format(n=years)
 
 
 def font(size, bold=False):
@@ -319,7 +458,6 @@ class RE4ModUpdater(ctk.CTk):
         self.branch_row_widgets = {}
         self._destroyed = False
         self._is_fading = False
-        self.folder_ok = self._validate_game_folder()
 
         self._build_card()
         apply_borderless_native_window(self)
@@ -333,11 +471,33 @@ class RE4ModUpdater(ctk.CTk):
 
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         threading.Thread(target=self._ensure_relauncher_installed, daemon=True).start()
+        self._start_app_flow()
+
+    def _start_app_flow(self):
+        self.folder_ok = self._validate_game_folder()
         if self.folder_ok:
             self._show_view("normal")
             threading.Thread(target=self.fetch_branches, daemon=True).start()
         else:
             self._show_view("folder_error")
+
+    def switch_language(self, lang):
+        global CURRENT_LANGUAGE
+        if lang == CURRENT_LANGUAGE:
+            return
+        CURRENT_LANGUAGE = lang
+        save_settings({"language": lang})
+        # Reconstruye toda la tarjeta con los textos del idioma nuevo, en
+        # vez de andar actualizando widget por widget — mucho más simple
+        # de mantener correcto en cualquier estado, a costa de un
+        # parpadeo breve (cambiar de idioma es una acción rara).
+        self.selected_label = None
+        self.selected_slug = None
+        self.branches_data = {}
+        self.card.destroy()
+        self._build_card()
+        threading.Thread(target=self.check_updater_version, daemon=True).start()
+        self._start_app_flow()
 
     # ---------------------------------------------------------
     # Validaciones
@@ -499,20 +659,28 @@ class RE4ModUpdater(ctk.CTk):
         title_col.pack(side="left", fill="x", expand=True, padx=(11, 0))
         title_lbl = ctk.CTkLabel(title_col, text="RE4MP", font=font(19, bold=True), text_color=COLOR_TITLE)
         title_lbl.pack(anchor="w")
-        subtitle_lbl = ctk.CTkLabel(title_col, text="Mod Updater", font=font(12), text_color=COLOR_MUTED)
+        subtitle_lbl = ctk.CTkLabel(title_col, text=t("app_subtitle"), font=font(12), text_color=COLOR_MUTED)
         subtitle_lbl.pack(anchor="w")
 
         status_col = ctk.CTkFrame(row, fg_color="transparent")
         status_col.pack(side="right")
         self.status_dot = ctk.CTkLabel(status_col, text="●", font=font(9), text_color=COLOR_MUTED, width=12)
         self.status_dot.pack(side="left")
-        self.lbl_online_status = ctk.CTkLabel(status_col, text="Conectando...", font=font(12), text_color=COLOR_MUTED)
+        self.lbl_online_status = ctk.CTkLabel(status_col, text=t("status_connecting"), font=font(12), text_color=COLOR_MUTED)
         self.lbl_online_status.pack(side="left", padx=(4, 0))
+
+        lang_btn = ctk.CTkButton(
+            row, text="ES" if CURRENT_LANGUAGE == "en" else "EN", width=30, height=22, corner_radius=6,
+            fg_color="transparent", hover_color=COLOR_ACCENT_SOFT_BG, border_color=COLOR_BORDER_BTN, border_width=1,
+            text_color=COLOR_MUTED, font=font(10, bold=True),
+            command=lambda: self.switch_language("es" if CURRENT_LANGUAGE == "en" else "en"),
+        )
+        lang_btn.pack(side="right", padx=(0, 10))
 
     def _set_online_status(self, online: bool):
         color = COLOR_ONLINE if online else COLOR_OFFLINE
         self.status_dot.configure(text_color=color)
-        self.lbl_online_status.configure(text="En línea" if online else "Sin conexión", text_color=color)
+        self.lbl_online_status.configure(text=t("status_online") if online else t("status_offline"), text_color=color)
 
     def _build_updater_section(self):
         panel = ctk.CTkFrame(self.card, fg_color=COLOR_INNER, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=10)
@@ -523,15 +691,15 @@ class RE4ModUpdater(ctk.CTk):
 
         left = ctk.CTkFrame(row, fg_color="transparent")
         left.pack(side="left", fill="x", expand=True)
-        ctk.CTkLabel(left, text="Actualización del updater", font=font(12.5, bold=True), text_color=COLOR_LABEL).pack(anchor="w")
+        ctk.CTkLabel(left, text=t("updater_section_label"), font=font(12.5, bold=True), text_color=COLOR_LABEL).pack(anchor="w")
         self.lbl_updater_status = ctk.CTkLabel(
-            left, text=f"{UPDATER_APP_VERSION} · Estás al día", font=font(11.5), text_color=COLOR_MUTED_2,
+            left, text=t("updater_up_to_date", version=UPDATER_APP_VERSION), font=font(11.5), text_color=COLOR_MUTED_2,
             wraplength=200, justify="left",
         )
         self.lbl_updater_status.pack(anchor="w", pady=(2, 0))
 
         self.btn_check_updater = ctk.CTkButton(
-            row, text="Buscar actualización", height=30, corner_radius=7,
+            row, text=t("btn_check_update"), height=30, corner_radius=7,
             fg_color="transparent", hover_color=COLOR_ACCENT_SOFT_BG, border_color=COLOR_BORDER_BTN, border_width=1,
             text_color=COLOR_MUTED, font=font(11.5, bold=True),
             command=self.start_updater_check_thread,
@@ -571,9 +739,9 @@ class RE4ModUpdater(ctk.CTk):
     def _build_view_folder_error(self):
         self.view_folder_error = ctk.CTkFrame(self.content_container, fg_color="transparent")
         card = self._build_state_card(
-            self.view_folder_error, "📁", "No encontramos Resident Evil 4",
-            f"Movés esta app a la misma carpeta que {GAME_EXE_NAME} y la abrís de nuevo.",
-            "Ver instrucciones", lambda: webbrowser.open(REPO_URL),
+            self.view_folder_error, "📁", t("folder_error_title"),
+            t("folder_error_body", game_exe=GAME_EXE_NAME),
+            t("folder_error_btn"), lambda: webbrowser.open(REPO_URL),
             accent_color=COLOR_ERROR, bg=COLOR_ERROR_BG, border=COLOR_ERROR_BORDER,
         )
         card.pack(fill="both", expand=True)
@@ -581,16 +749,16 @@ class RE4ModUpdater(ctk.CTk):
     def _build_view_offline(self):
         self.view_offline = ctk.CTkFrame(self.content_container, fg_color="transparent")
         card = self._build_state_card(
-            self.view_offline, "🔌", "Sin conexión", "Revisá tu internet e intentá de nuevo.",
-            "Reintentar", self.start_refresh_branches_thread, accent_color=COLOR_MUTED,
+            self.view_offline, "🔌", t("offline_title"), t("offline_body"),
+            t("retry_btn"), self.start_refresh_branches_thread, accent_color=COLOR_MUTED,
         )
         card.pack(fill="both", expand=True)
 
     def _build_view_empty(self):
         self.view_empty = ctk.CTkFrame(self.content_container, fg_color="transparent")
         card = self._build_state_card(
-            self.view_empty, "📭", "Todavía no hay versiones publicadas", "Volvé a intentar más tarde.",
-            "Reintentar", self.start_refresh_branches_thread, accent_color=COLOR_MUTED,
+            self.view_empty, "📭", t("empty_title"), t("empty_body"),
+            t("retry_btn"), self.start_refresh_branches_thread, accent_color=COLOR_MUTED,
         )
         card.pack(fill="both", expand=True)
 
@@ -599,7 +767,7 @@ class RE4ModUpdater(ctk.CTk):
 
         header_row = ctk.CTkFrame(self.view_normal, fg_color="transparent")
         header_row.pack(fill="x")
-        ctk.CTkLabel(header_row, text="Elegir rama del mod", font=font(15.5, bold=True), text_color=COLOR_TITLE).pack(side="left")
+        ctk.CTkLabel(header_row, text=t("branch_section_title"), font=font(15.5, bold=True), text_color=COLOR_TITLE).pack(side="left")
         ctk.CTkButton(
             header_row, text="↻", width=28, height=28, corner_radius=8,
             fg_color="transparent", hover_color=COLOR_ACCENT_SOFT_BG, border_color=COLOR_BORDER_BTN, border_width=1,
@@ -609,7 +777,7 @@ class RE4ModUpdater(ctk.CTk):
 
         self.search_var = ctk.StringVar()
         self.search_entry = ctk.CTkEntry(
-            self.view_normal, textvariable=self.search_var, placeholder_text="🔍 Buscar rama...",
+            self.view_normal, textvariable=self.search_var, placeholder_text=t("search_placeholder"),
             fg_color=COLOR_INNER, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=8,
             text_color=COLOR_TITLE, placeholder_text_color=COLOR_MUTED_2, height=34,
         )
@@ -625,7 +793,7 @@ class RE4ModUpdater(ctk.CTk):
         self.download_controls.pack(fill="x")
 
         self.btn_download = ctk.CTkButton(
-            self.download_controls, text="Descargar", height=44, corner_radius=10,
+            self.download_controls, text=t("btn_download"), height=44, corner_radius=10,
             fg_color=COLOR_ACCENT, hover_color="#C99432", text_color=COLOR_ACCENT_TEXT,
             font=font(14.5, bold=True), state="disabled", command=self.start_download_thread,
         )
@@ -635,11 +803,11 @@ class RE4ModUpdater(ctk.CTk):
         self.lbl_status.pack(pady=(8, 0))
 
         self.success_panel = self._build_state_card(
-            self.view_normal, "✅", "¡Instalado correctamente!", None,
+            self.view_normal, "✅", t("install_success_title"), None,
             None, None, accent_color=COLOR_SUCCESS_BTN, bg=COLOR_SUCCESS_BG, border=COLOR_SUCCESS_BORDER,
         )
         ctk.CTkButton(
-            self.success_panel, text="🎮 Jugar ahora", height=36, corner_radius=7,
+            self.success_panel, text=t("play_now_btn"), height=36, corner_radius=7,
             fg_color=COLOR_SUCCESS_BTN, hover_color="#6BA04A", text_color=COLOR_ACCENT_TEXT,
             font=font(12.5, bold=True), command=self.launch_game,
         ).pack(pady=(0, 22))
@@ -715,7 +883,7 @@ class RE4ModUpdater(ctk.CTk):
         labels = [l for l in self._ordered_branch_labels() if query in l.lower()]
 
         if not labels:
-            ctk.CTkLabel(self.branch_list_frame, text="Sin resultados", text_color=COLOR_MUTED, font=font(11)).pack(pady=10)
+            ctk.CTkLabel(self.branch_list_frame, text=t("no_results"), text_color=COLOR_MUTED, font=font(11)).pack(pady=10)
             return
 
         for label in labels:
@@ -740,7 +908,7 @@ class RE4ModUpdater(ctk.CTk):
         date_color = COLOR_LABEL if is_selected else COLOR_BRANCH_DATE
         name_lbl = ctk.CTkLabel(text_col, text=label, font=font(13, bold=True), text_color=name_color, anchor="w")
         name_lbl.pack(fill="x")
-        date_lbl = ctk.CTkLabel(text_col, text=f"Actualizado {self.branches_data[label]['date']}", font=font(11), text_color=date_color, anchor="w")
+        date_lbl = ctk.CTkLabel(text_col, text=t("branch_updated_prefix", date=self.branches_data[label]['date']), font=font(11), text_color=date_color, anchor="w")
         date_lbl.pack(fill="x")
 
         dot_lbl = None
@@ -792,8 +960,8 @@ class RE4ModUpdater(ctk.CTk):
     def start_download_thread(self):
         if not self.selected_slug:
             return
-        self.btn_download.configure(text="Descargando...", state="disabled")
-        self.lbl_status.configure(text="Descargando desde el servidor...", text_color=COLOR_MUTED)
+        self.btn_download.configure(text=t("btn_downloading"), state="disabled")
+        self.lbl_status.configure(text=t("status_downloading_server"), text_color=COLOR_MUTED)
         threading.Thread(target=self._process_download, args=(self.selected_slug,), daemon=True).start()
 
     def _process_download(self, slug):
@@ -809,29 +977,29 @@ class RE4ModUpdater(ctk.CTk):
 
                 if file_hash(target_path) == file_hash(temp_path):
                     os.remove(temp_path)
-                    self.after(0, lambda: self.lbl_status.configure(text="Ya tenés instalada esta versión.", text_color=COLOR_MUTED))
-                    self.after(0, lambda: self.btn_download.configure(text="Descargar", state="normal"))
+                    self.after(0, lambda: self.lbl_status.configure(text=t("status_already_installed"), text_color=COLOR_MUTED))
+                    self.after(0, lambda: self.btn_download.configure(text=t("btn_download"), state="normal"))
                 else:
                     os.replace(temp_path, target_path)
                     self.after(0, self._show_install_success)
             else:
-                self.after(0, lambda: self.lbl_status.configure(text=f"El archivo no existe (código {response.status_code}).", text_color=COLOR_ERROR))
-                self.after(0, lambda: self.btn_download.configure(text="Descargar", state="normal"))
+                self.after(0, lambda: self.lbl_status.configure(text=t("status_file_not_found", code=response.status_code), text_color=COLOR_ERROR))
+                self.after(0, lambda: self.btn_download.configure(text=t("btn_download"), state="normal"))
         except PermissionError:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            self.after(0, lambda: self.lbl_status.configure(text="Permiso denegado. Cerrá el juego e intentá de nuevo.", text_color=COLOR_ERROR))
-            self.after(0, lambda: self.btn_download.configure(text="Descargar", state="normal"))
+            self.after(0, lambda: self.lbl_status.configure(text=t("status_permission_denied"), text_color=COLOR_ERROR))
+            self.after(0, lambda: self.btn_download.configure(text=t("btn_download"), state="normal"))
         except Exception:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            self.after(0, lambda: self.lbl_status.configure(text="Ocurrió un error inesperado al descargar.", text_color=COLOR_ERROR))
-            self.after(0, lambda: self.btn_download.configure(text="Descargar", state="normal"))
+            self.after(0, lambda: self.lbl_status.configure(text=t("status_unexpected_error"), text_color=COLOR_ERROR))
+            self.after(0, lambda: self.btn_download.configure(text=t("btn_download"), state="normal"))
 
     def _show_install_success(self):
         self.download_controls.pack_forget()
         self.success_panel.pack(fill="both", expand=True)
-        self.btn_download.configure(text="Descargar", state="normal")
+        self.btn_download.configure(text=t("btn_download"), state="normal")
 
     def launch_game(self):
         game_path = os.path.join(game_dir(), GAME_EXE_NAME)
@@ -864,14 +1032,14 @@ class RE4ModUpdater(ctk.CTk):
     # ---------------------------------------------------------
     def start_updater_check_thread(self):
         self.btn_check_updater.configure(state="disabled")
-        self.lbl_updater_status.configure(text="Buscando actualización...", text_color=COLOR_MUTED_2)
+        self.lbl_updater_status.configure(text=t("updater_checking"), text_color=COLOR_MUTED_2)
         threading.Thread(target=self.check_updater_version, daemon=True).start()
 
     def check_updater_version(self):
         try:
             response = SESSION.get(f"{WORKER_BASE_URL}/updater/app/latest", timeout=10)
             if response.status_code != 200:
-                self.after(0, self._show_updater_check_error, f"No se pudo verificar (código {response.status_code}).")
+                self.after(0, self._show_updater_check_error, t("updater_check_error", code=response.status_code))
                 return
             remote_commit = response.json().get("commit")
             if remote_commit and remote_commit != UPDATER_APP_VERSION:
@@ -879,10 +1047,10 @@ class RE4ModUpdater(ctk.CTk):
             else:
                 self.after(0, self._show_updater_up_to_date)
         except Exception:
-            self.after(0, self._show_updater_check_error, "Error de conexión al verificar.")
+            self.after(0, self._show_updater_check_error, t("updater_conn_error"))
 
     def _show_updater_up_to_date(self):
-        self.lbl_updater_status.configure(text=f"{UPDATER_APP_VERSION} · Estás al día", text_color=COLOR_MUTED_2)
+        self.lbl_updater_status.configure(text=t("updater_up_to_date", version=UPDATER_APP_VERSION), text_color=COLOR_MUTED_2)
         self.btn_check_updater.configure(state="normal")
 
     def _show_updater_check_error(self, message):
@@ -890,12 +1058,12 @@ class RE4ModUpdater(ctk.CTk):
         self.btn_check_updater.configure(state="normal")
 
     def _show_updater_available(self, remote_commit):
-        self.lbl_updater_status.configure(text=f"Nueva versión disponible ({remote_commit})", text_color=COLOR_ACCENT)
-        self.btn_check_updater.configure(text="Descargar actualización", state="normal", command=self.start_updater_download_thread)
+        self.lbl_updater_status.configure(text=t("updater_available", commit=remote_commit), text_color=COLOR_ACCENT)
+        self.btn_check_updater.configure(text=t("btn_download_update"), state="normal", command=self.start_updater_download_thread)
 
     def start_updater_download_thread(self):
-        self.btn_check_updater.configure(state="disabled", text="Descargando...")
-        self.lbl_updater_status.configure(text="Descargando actualización...", text_color=COLOR_MUTED_2)
+        self.btn_check_updater.configure(state="disabled", text=t("btn_downloading"))
+        self.lbl_updater_status.configure(text=t("updater_downloading"), text_color=COLOR_MUTED_2)
         self.updater_progress.set(0)
         self.updater_progress.pack(fill="x", padx=13, pady=(0, 11))
         threading.Thread(target=self._download_new_updater, daemon=True).start()
@@ -919,19 +1087,19 @@ class RE4ModUpdater(ctk.CTk):
                 self.new_app_content = b"".join(chunks)
                 self.after(0, self._show_restart_button)
             else:
-                self.after(0, lambda: self._show_updater_download_error("No se pudo descargar la actualización."))
+                self.after(0, lambda: self._show_updater_download_error(t("updater_download_error")))
         except Exception:
-            self.after(0, lambda: self._show_updater_download_error("Error al descargar la actualización."))
+            self.after(0, lambda: self._show_updater_download_error(t("updater_download_error_generic")))
 
     def _show_updater_download_error(self, message):
         self.updater_progress.pack_forget()
         self.lbl_updater_status.configure(text=message, text_color=COLOR_ERROR)
-        self.btn_check_updater.configure(state="normal", text="Buscar actualización", command=self.start_updater_check_thread)
+        self.btn_check_updater.configure(state="normal", text=t("btn_check_update"), command=self.start_updater_check_thread)
 
     def _show_restart_button(self):
         self.updater_progress.pack_forget()
-        self.lbl_updater_status.configure(text="Actualización lista para instalar.", text_color=COLOR_ONLINE)
-        self.btn_check_updater.configure(text="Reiniciar ahora", state="normal", command=self.apply_updater_update)
+        self.lbl_updater_status.configure(text=t("updater_ready_restart"), text_color=COLOR_ONLINE)
+        self.btn_check_updater.configure(text=t("btn_restart_now"), state="normal", command=self.apply_updater_update)
 
     def apply_updater_update(self):
         if not self.new_app_content:
@@ -956,7 +1124,7 @@ class RE4ModUpdater(ctk.CTk):
             with open(APP_PY_PATH, "wb") as f:
                 f.write(self.new_app_content)
         except Exception:
-            self.lbl_updater_status.configure(text="No se pudo guardar la actualización.", text_color=COLOR_ERROR)
+            self.lbl_updater_status.configure(text=t("updater_save_error"), text_color=COLOR_ERROR)
             return
 
         try:
@@ -984,7 +1152,7 @@ class RE4ModUpdater(ctk.CTk):
             else:
                 subprocess.Popen([sys.executable, LAUNCHER_PATH])
         except Exception:
-            self.lbl_updater_status.configure(text="No se pudo reiniciar. Abrí el updater de nuevo a mano.", text_color=COLOR_ERROR)
+            self.lbl_updater_status.configure(text=t("updater_restart_error"), text_color=COLOR_ERROR)
             return
 
         # Pequeño margen antes de cerrarnos: nos aseguramos de que el
@@ -1043,7 +1211,7 @@ if __name__ == "__main__":
     if not acquire_single_instance_lock():
         _root = tk.Tk()
         _root.withdraw()
-        messagebox.showinfo("RE4MP Updater", "Ya hay una instancia del updater abierta.")
+        messagebox.showinfo("RE4MP Updater", t("single_instance_msg"))
         _root.destroy()
         sys.exit(0)
 
