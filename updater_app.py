@@ -494,7 +494,7 @@ class RE4ModUpdater(ctk.CTk):
         self.selected_label = None
         self.selected_slug = None
         self.branches_data = {}
-        self.card.destroy()
+        self.outer.destroy()
         self._build_card()
         threading.Thread(target=self.check_updater_version, daemon=True).start()
         self._start_app_flow()
@@ -510,11 +510,11 @@ class RE4ModUpdater(ctk.CTk):
     # actualización del updater (siempre visibles) + contenido variable.
     # ---------------------------------------------------------
     def _build_card(self):
-        outer = ctk.CTkFrame(self, fg_color="transparent")
-        outer.pack(fill="both", expand=True, padx=3, pady=3)
+        self.outer = ctk.CTkFrame(self, fg_color="transparent")
+        self.outer.pack(fill="both", expand=True, padx=3, pady=3)
 
         self.card = ctk.CTkFrame(
-            outer, fg_color=COLOR_PANEL, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=16,
+            self.outer, fg_color=COLOR_PANEL, border_color=COLOR_PANEL_BORDER, border_width=1, corner_radius=16,
         )
         self.card.pack(fill="both", expand=True)
 
